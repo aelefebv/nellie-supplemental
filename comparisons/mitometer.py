@@ -62,82 +62,74 @@ if __name__ == "__main__":
     import os
     top_dir = r"C:\Users\austin\GitHub\nellie-simulations\multi_grid\multigrid"
     output_dir = os.path.join(top_dir, 'mitometer')
+    time_series_dir = r"C:\Users\austin\GitHub\nellie-simulations\multi_grid\time_series"
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    im_path = r"C:\Users\austin\GitHub\nellie-simulations\multi_grid\time_series\gaussian_std_4096.tif"
-    stack = tifffile.imread(im_path)
+    all_files = os.listdir(time_series_dir)
+    file_names = [file for file in all_files if file.endswith('.tif')]
+    for file_num, tif_file in enumerate(file_names):
+        stack = tifffile.imread(os.path.join(time_series_dir, tif_file))
+        num_t = stack.shape[0]
 
-    num_t = stack.shape[0]
+        # def run_frame(stack):
+        stack = xp.asarray(stack)
+        # convert 16-bit to 8-bit image as done in paper
+        if stack.dtype == 'uint16':
+            stack = xp.round(stack / 256).astype(xp.uint8)
 
-    # def run_frame(stack):
-    stack = xp.asarray(stack)
-    # convert 16-bit to 8-bit image as done in paper
-    if stack.dtype == 'uint16':
-        stack = xp.round(stack / 256).astype(xp.uint8)
-        # stack = xp.round(stack).astype(xp.uint8)
-
-    # # since mitometer requires timeframes, let's just duplicate the stack and add random nums?
-    # full_stack = xp.zeros((num_t, *stack.shape), dtype=stack.dtype)
-    # full_stack[0] = stack
-    # for t in range(num_t-1):
-    #     print(f'Adding random noise to timepoint {t}.')
-    #     full_stack[t + 1] = add_noise(stack)
-    # tifffile.imwrite("mitometer_test_full_stack.tif", full_stack.get())
-
-    all_im_bg_removed_timepoints = []
-    for t in range(num_t):
-        print(f'Removing background from timepoint {t}.')
-        all_im_bg_removed_timepoints.append(remove_background(stack[t]))
-    all_im_bg_removed_timepoints = xp.asarray(all_im_bg_removed_timepoints)
-    tifffile.imwrite("mitometer_test.tif", all_im_bg_removed_timepoints.get())
-
-    sigma_matrix = xp.arange(0.33, 0.5, 0.04)
-    intensity_quantile_80 = xp.quantile(all_im_bg_removed_timepoints[all_im_bg_removed_timepoints>0], 0.8)
-    print(f'{intensity_quantile_80=}')
-    thresh_matrix = range(2, int(intensity_quantile_80))
-    if intensity_quantile_80 < 2:
-        thresh_matrix = [2]
-    num_components = xp.zeros((len(all_im_bg_removed_timepoints), len(thresh_matrix), len(sigma_matrix)))
-    median_area = xp.zeros((len(all_im_bg_removed_timepoints), len(thresh_matrix), len(sigma_matrix)))
-    for sigma_num, sigma in enumerate(sigma_matrix):
-        im_filtered = xp.zeros_like(all_im_bg_removed_timepoints)
+        all_im_bg_removed_timepoints = []
         for t in range(num_t):
-            im_filtered[t] = ndi.gaussian_filter(all_im_bg_removed_timepoints[t], sigma=sigma)
-        for thresh_num, thresh in enumerate(thresh_matrix):
-            print(f'Running connected components for {thresh=}, {sigma=}.')
+            print(f'Removing background from timepoint {t}.')
+            all_im_bg_removed_timepoints.append(remove_background(stack[t]))
+        all_im_bg_removed_timepoints = xp.asarray(all_im_bg_removed_timepoints)
+
+        sigma_matrix = xp.arange(0.33, 0.5, 0.04)
+        intensity_quantile_80 = xp.quantile(all_im_bg_removed_timepoints[all_im_bg_removed_timepoints>0], 0.8)
+        print(f'{intensity_quantile_80=}')
+        thresh_matrix = range(2, int(intensity_quantile_80))
+        if intensity_quantile_80 < 2:
+            thresh_matrix = [2]
+        num_components = xp.zeros((len(all_im_bg_removed_timepoints), len(thresh_matrix), len(sigma_matrix)))
+        median_area = xp.zeros((len(all_im_bg_removed_timepoints), len(thresh_matrix), len(sigma_matrix)))
+        for sigma_num, sigma in enumerate(sigma_matrix):
+            im_filtered = xp.zeros_like(all_im_bg_removed_timepoints)
             for t in range(num_t):
-                im = im_filtered[t] > thresh
-                labeled_im, num_labels = ndi.label(im)
-                num_components[t, thresh_num, sigma_num] = num_labels
-                if num_labels == 0:
-                    median_area[t, thresh_num, sigma_num] = 0
-                    continue
-                # get median area using bincounts
-                areas = xp.bincount(labeled_im.ravel())[1:]
-                median_area[t, thresh_num, sigma_num] = xp.median(areas)
+                im_filtered[t] = ndi.gaussian_filter(all_im_bg_removed_timepoints[t], sigma=sigma)
+            for thresh_num, thresh in enumerate(thresh_matrix):
+                print(f'Running connected components for {thresh=}, {sigma=}.')
+                for t in range(num_t):
+                    im = im_filtered[t] > thresh
+                    labeled_im, num_labels = ndi.label(im)
+                    num_components[t, thresh_num, sigma_num] = num_labels
+                    if num_labels == 0:
+                        median_area[t, thresh_num, sigma_num] = 0
+                        continue
+                    # get median area using bincounts
+                    areas = xp.bincount(labeled_im.ravel())[1:]
+                    median_area[t, thresh_num, sigma_num] = xp.median(areas)
 
-    std_area = xp.std(median_area, axis=0)
-    std_num_components = xp.std(num_components, axis=0)
-    mean_num_components = xp.mean(num_components, axis=0)
-    # zscore normalize
-    std_area = (std_area - xp.mean(std_area)) / xp.std(std_area)
-    std_num_components = (std_num_components - xp.mean(std_num_components)) / xp.std(std_num_components)
-    mean_num_components = (mean_num_components - xp.mean(mean_num_components)) / xp.std(mean_num_components)
+        std_area = xp.std(median_area, axis=0)
+        std_num_components = xp.std(num_components, axis=0)
+        mean_num_components = xp.mean(num_components, axis=0)
+        # zscore normalize
+        std_area = (std_area - xp.mean(std_area)) / xp.std(std_area)
+        std_num_components = (std_num_components - xp.mean(std_num_components)) / xp.std(std_num_components)
+        mean_num_components = (mean_num_components - xp.mean(mean_num_components)) / xp.std(mean_num_components)
 
-    cost_matrix = std_area + std_num_components - 0.5*mean_num_components
-    # median_filter
-    cost_matrix = ndi.median_filter(cost_matrix, size=3)
-    cost_matrix[cost_matrix==0] = 1e4
+        cost_matrix = std_area + std_num_components - 0.5*mean_num_components
+        # median_filter
+        cost_matrix = ndi.median_filter(cost_matrix, size=3)
+        cost_matrix[cost_matrix==0] = 1e4
 
-    # get indices of min values
-    min_indices = xp.unravel_index(xp.argmin(cost_matrix), cost_matrix.shape)
-    # get corresponding sigma and threshold values
-    best_thresh = int(thresh_matrix[int(min_indices[0])])
-    best_sigma = float(sigma_matrix[int(min_indices[1])])
+        # get indices of min values
+        min_indices = xp.unravel_index(xp.argmin(cost_matrix), cost_matrix.shape)
+        # get corresponding sigma and threshold values
+        best_thresh = int(thresh_matrix[int(min_indices[0])])
+        best_sigma = float(sigma_matrix[int(min_indices[1])])
 
-    final_seg = ndi.gaussian_filter(all_im_bg_removed_timepoints[0], sigma=best_sigma) > best_thresh
+        final_seg = ndi.gaussian_filter(all_im_bg_removed_timepoints[0], sigma=best_sigma) > best_thresh
 
-    tifffile.imwrite(os.path.join(output_dir, 'final_seg.tif'), final_seg.get())
+        tifffile.imwrite(os.path.join(output_dir, file_names[file_num]), final_seg.get())
 # save tif
 
