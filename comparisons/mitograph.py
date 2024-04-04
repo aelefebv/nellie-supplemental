@@ -34,7 +34,6 @@ c_sq = c ** 2
 
 
 def run_frame(stack):
-    # todo zoom z dimension based on ratio of z to x/y
     # convert 16-bit to 8-bit image as done in paper
     if stack.dtype == 'uint16':
         stack = np.round(stack / 256).astype('uint8')
