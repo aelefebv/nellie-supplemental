@@ -60,15 +60,20 @@ def add_noise(stack):
 
 if __name__ == "__main__":
     import os
-    top_dir = r"C:\Users\austin\GitHub\nellie-simulations\multi_grid\multigrid"
+    top_dir = r"C:\Users\austin\GitHub\nellie-simulations\separation\separation"
     output_dir = os.path.join(top_dir, 'mitometer')
-    time_series_dir = r"C:\Users\austin\GitHub\nellie-simulations\multi_grid\time_series"
+    time_series_dir = r"C:\Users\austin\GitHub\nellie-simulations\separation\time_series"
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
     all_files = os.listdir(time_series_dir)
     file_names = [file for file in all_files if file.endswith('.tif')]
     for file_num, tif_file in enumerate(file_names):
+        output_name = os.path.join(output_dir, file_names[file_num])
+        if os.path.exists(output_name):
+            print(f'already exists, skipping')
+            continue
+
         stack = tifffile.imread(os.path.join(time_series_dir, tif_file))
         num_t = stack.shape[0]
 
@@ -85,10 +90,14 @@ if __name__ == "__main__":
         all_im_bg_removed_timepoints = xp.asarray(all_im_bg_removed_timepoints)
 
         sigma_matrix = xp.arange(0.33, 0.5, 0.04)
-        intensity_quantile_80 = xp.quantile(all_im_bg_removed_timepoints[all_im_bg_removed_timepoints>0], 0.8)
+        if xp.max(all_im_bg_removed_timepoints) == 0:
+            intensity_quantile_80 = 0
+        else:
+            intensity_quantile_80 = xp.quantile(all_im_bg_removed_timepoints[all_im_bg_removed_timepoints>0], 0.8)
+        # if not intensity_quantile_80:
         print(f'{intensity_quantile_80=}')
         thresh_matrix = range(2, int(intensity_quantile_80))
-        if intensity_quantile_80 < 2:
+        if intensity_quantile_80 <= 2:
             thresh_matrix = [2]
         num_components = xp.zeros((len(all_im_bg_removed_timepoints), len(thresh_matrix), len(sigma_matrix)))
         median_area = xp.zeros((len(all_im_bg_removed_timepoints), len(thresh_matrix), len(sigma_matrix)))
@@ -122,8 +131,12 @@ if __name__ == "__main__":
         cost_matrix = ndi.median_filter(cost_matrix, size=3)
         cost_matrix[cost_matrix==0] = 1e4
 
-        # get indices of min values
+        # if cost_matrix.size > 0:
+            # get indices of min values
         min_indices = xp.unravel_index(xp.argmin(cost_matrix), cost_matrix.shape)
+        # else:
+        #     min_indices = (0, 0)
+
         # get corresponding sigma and threshold values
         best_thresh = int(thresh_matrix[int(min_indices[0])])
         best_sigma = float(sigma_matrix[int(min_indices[1])])
