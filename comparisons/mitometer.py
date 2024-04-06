@@ -60,9 +60,13 @@ def add_noise(stack):
 
 if __name__ == "__main__":
     import os
-    top_dir = r"C:\Users\austin\GitHub\nellie-simulations\separation\separation"
+    # top_dir = r"C:\Users\austin\GitHub\nellie-simulations\separation\separation"
+    # time_series_dir = r"C:\Users\austin\GitHub\nellie-simulations\separation\time_series"
+
+    top_dir = r"C:\Users\austin\GitHub\nellie-simulations\px_sizes\px_sizes"
+    time_series_dir = r"C:\Users\austin\GitHub\nellie-simulations\px_sizes\time_series"
+
     output_dir = os.path.join(top_dir, 'mitometer')
-    time_series_dir = r"C:\Users\austin\GitHub\nellie-simulations\separation\time_series"
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
