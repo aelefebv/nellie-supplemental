@@ -1,3 +1,4 @@
+from scipy.optimize import linear_sum_assignment
 from tifffile import tifffile
 import ome_types
 import numpy as np
@@ -62,8 +63,10 @@ for file in tif_files[:1]:
 
     vel_thresh_um = distance_thresh_um * dim_sizes['T']
 
-    # num_frames = im.shape[0]
-    num_frames = 2
+    weights = {'vol': 1, 'majax': 1, 'minax': 1, 'z_axis': 1, 'solidity': 1, 'surface_area': 1, 'intensity': 1}
+
+    num_frames = im.shape[0]
+    # num_frames = 2
 
     frame_mito = {}
     tracks = []
@@ -78,18 +81,68 @@ for file in tif_files[:1]:
             if frame == 0:
                 tracks.append({'mitos': [mito], 'frames': [frame]})
 
+    running_confidence_costs = []
     for frame in range(num_frames):
         track_centroids = np.array([track['mitos'][-1].centroid for track in tracks])
         frame_centroids = np.array([mito.centroid for mito in frame_mito[frame]])
-        distance_matrix = np.linalg.norm(track_centroids[:, None] - frame_centroids, axis=-1)
-        volume_matrix = get_delta_matrix(tracks, frame_mito[frame], 'area')
-        majax_matrix = get_delta_matrix(tracks, frame_mito[frame], 'major_axis_length')
-        minax_matrix = get_delta_matrix(tracks, frame_mito[frame], 'minor_axis_length')
-        z_axis_matrix = get_delta_matrix(tracks, frame_mito[frame], 'equivalent_diameter')
-        solidity_matrix = get_delta_matrix(tracks, frame_mito[frame], 'solidity')
-        surface_area_matrix = get_delta_matrix(tracks, frame_mito[frame], 'surface_area')
-        intensity_matrix = get_delta_matrix(tracks, frame_mito[frame], 'mean_intensity')
+        distance_matrix = np.linalg.norm(track_centroids[:, None] - frame_centroids, axis=-1).T
+        volume_matrix = get_delta_matrix(tracks, frame_mito[frame], 'area') ** 2
+        majax_matrix = get_delta_matrix(tracks, frame_mito[frame], 'major_axis_length') ** 2
+        minax_matrix = get_delta_matrix(tracks, frame_mito[frame], 'minor_axis_length') ** 2
+        z_axis_matrix = get_delta_matrix(tracks, frame_mito[frame], 'equivalent_diameter') ** 2
+        solidity_matrix = get_delta_matrix(tracks, frame_mito[frame], 'solidity') ** 2
+        surface_area_matrix = get_delta_matrix(tracks, frame_mito[frame], 'surface_area') ** 2
+        intensity_matrix = get_delta_matrix(tracks, frame_mito[frame], 'mean_intensity') ** 2
         frame_matrix = get_frame_matrix(tracks, frame_mito[frame])
 
-        distance_matrix = np.where(distance_matrix > vel_thresh_um, np.inf, distance_matrix)
-        distance_matrix = np.where(np.abs(frame_matrix) > frame_thresh, np.inf, distance_matrix)
+        distance_matrix = np.where(distance_matrix > vel_thresh_um, np.nan, distance_matrix)
+        distance_matrix = np.where(np.abs(frame_matrix) > frame_thresh, np.nan, distance_matrix) ** 2
+
+        # z score normalize
+        distance_matrix_z = (distance_matrix - np.nanmean(distance_matrix)) / np.nanstd(distance_matrix) if np.nanstd(distance_matrix) != 0 else distance_matrix * 0
+        volume_matrix_z = (volume_matrix - np.nanmean(volume_matrix)) / np.nanstd(volume_matrix) if np.nanstd(volume_matrix) != 0 else volume_matrix * 0
+        majax_matrix_z = (majax_matrix - np.nanmean(majax_matrix)) / np.nanstd(majax_matrix) if np.nanstd(majax_matrix) != 0 else majax_matrix * 0
+        minax_matrix_z = (minax_matrix - np.nanmean(minax_matrix)) / np.nanstd(minax_matrix) if np.nanstd(minax_matrix) != 0 else minax_matrix * 0
+        z_axis_matrix_z = (z_axis_matrix - np.nanmean(z_axis_matrix)) / np.nanstd(z_axis_matrix) if np.nanstd(z_axis_matrix) != 0 else z_axis_matrix * 0
+        solidity_matrix_z = (solidity_matrix - np.nanmean(solidity_matrix)) / np.nanstd(solidity_matrix) if np.nanstd(solidity_matrix) != 0 else solidity_matrix * 0
+        surface_area_matrix_z = (surface_area_matrix - np.nanmean(surface_area_matrix)) / np.nanstd(surface_area_matrix) if np.nanstd(surface_area_matrix) != 0 else surface_area_matrix * 0
+        intensity_matrix_z = (intensity_matrix - np.nanmean(intensity_matrix)) / np.nanstd(intensity_matrix) if np.nanstd(intensity_matrix) != 0 else intensity_matrix * 0
+
+        cost_matrix = (weights['vol'] * volume_matrix_z + weights['majax'] * majax_matrix_z +
+                       weights['minax'] * minax_matrix_z + weights['z_axis'] * z_axis_matrix_z +
+                       weights['solidity'] * solidity_matrix_z + weights['surface_area'] * surface_area_matrix_z +
+                       weights['intensity'] * intensity_matrix_z) + distance_matrix_z
+
+        if len(running_confidence_costs) == 0:
+            start_cost = 1
+        else:
+            start_cost = xp.nanquantile(running_confidence_costs, 0.98)
+
+        # diagonal of start costs of size of the cost matrix
+        new_track_matrix = np.zeros((len(frame_mito[frame]), len(frame_mito[frame]))) + np.nan
+        new_track_matrix[np.diag_indices_from(new_track_matrix)] = start_cost
+
+        assign_matrix = np.hstack((cost_matrix, new_track_matrix))
+        assign_matrix[xp.isnan(assign_matrix)] = 100
+        # get min local cost assignments
+        min_local = xp.argmin(assign_matrix, axis=1)
+
+        # solve LAP (get min global cost assignments)
+        row_ind, col_ind = linear_sum_assignment(assign_matrix)
+
+        # add matched mito from LAP to track
+        for i, j in zip(row_ind, col_ind):
+            if j < len(tracks):
+                tracks[j]['mitos'].append(frame_mito[frame][i])
+                tracks[j]['frames'].append(frame)
+            else:
+                tracks.append({'mitos': [frame_mito[frame][i]], 'frames': [frame]})
+
+        # check where local and global assignments match
+        confident_assignments = xp.where(min_local[row_ind] == col_ind)[0]
+
+        confident_costs = assign_matrix[row_ind[confident_assignments], col_ind[confident_assignments]]
+        running_confidence_costs.extend(confident_costs)
+
+
+
