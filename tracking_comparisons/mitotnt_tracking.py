@@ -1,14 +1,12 @@
-# NOTE: this file should live within the MitoTNT repo folder,
-#  as it imports from the MitoTNT package which is not pip installable
-
 import os.path
 import tifffile
 import numpy as np
 import os
 from multiprocessing import Pool, cpu_count
 import pandas as pd
+import ome_types
 
-from mitotnt_tracking import generate_tracking_inputs, network_tracking
+from mitotnt import generate_tracking_inputs, network_tracking
 
 
 def convert(im_dir, im_name):
@@ -39,6 +37,8 @@ def parallel_mitograph(im_dir, lateral_pixel_size, axial_pixel_size, mitograph_d
 
 
 def run_mitotnt(im_dir, start_frame, end_frame, frame_interval, tracking_interval):
+    # keeping defaults for sake of automation comparison.
+
     input_dir = os.path.join(im_dir, 'tracking_inputs')
     if not os.path.isdir(input_dir):
         os.mkdir(input_dir)
@@ -67,23 +67,24 @@ if __name__ == "__main__":
     visualize = True
 
     im = convert(im_dir, im_name)
+
+    # get metadata
     num_frames = len(im)
-
-    # todo get metadata with ome-types to get px sizes and time interval
-    lateral_px_size = 0.2
-    axial_px_size = 0.2
-    frame_interval = 1
+    ome_xml = tifffile.tiffcomment(os.path.join(im_dir, im_name))
+    ome = ome_types.from_xml(ome_xml)
+    lateral_px_size = ome.images[0].pixels.physical_size_x
+    axial_px_size = ome.images[0].pixels.physical_size_z
+    frame_interval = ome.images[0].pixels.time_increment
     tracking_interval = 1
-
-    parallel_mitograph(im_dir, lateral_px_size, axial_px_size, mitograph_dir)
-
     start_frame = 0
     end_frame = num_frames - 1
 
+    parallel_mitograph(im_dir, lateral_px_size, axial_px_size, mitograph_dir)
     run_mitotnt(im_dir, start_frame, end_frame, frame_interval, tracking_interval)
 
     if visualize:
         import napari
+
         viewer = napari.Viewer()
         track_file = os.path.join(im_dir, 'tracking_outputs', 'final_node_tracks.csv')
         df = pd.read_csv(track_file)
