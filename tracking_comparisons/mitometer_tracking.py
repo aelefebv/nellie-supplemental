@@ -272,29 +272,36 @@ def close_gaps(tracks, vel_thresh_um, frame_thresh, num_frames):
     return final_tracks
 
 
-distance_thresh_um = 1
-frame_thresh = 3
+if __name__ == '__main__':
+    distance_thresh_um = 1
+    frame_thresh = 3
 
-top_dir = r"C:\Users\austin\GitHub\nellie-simulations\motion\linear"
-all_files = os.listdir(top_dir)
-tif_files = [file for file in all_files if file.endswith('.tif')]
-for file in tif_files[:1]:
-    # basename = os.path.basename(file)
-    noiseless_path = os.path.join(top_dir, 'noiseless', file)
-    mask_im = tifffile.imread(noiseless_path) > 0
+    top_dir = r"C:\Users\austin\GitHub\nellie-simulations\motion\linear"
+    all_files = os.listdir(top_dir)
+    tif_files = [file for file in all_files if file.endswith('.tif')]
+    for file in tif_files[:1]:
+        noiseless_path = os.path.join(top_dir, 'noiseless', file)
+        mask_im = tifffile.imread(noiseless_path) > 0
 
-    im_path = os.path.join(top_dir, file)
-    im = tifffile.imread(os.path.join(top_dir, file))
-    ome_xml = tifffile.tiffcomment(im_path)
-    ome = ome_types.from_xml(ome_xml)
+        im_path = os.path.join(top_dir, file)
+        im = tifffile.imread(os.path.join(top_dir, file))
+        ome_xml = tifffile.tiffcomment(im_path)
+        ome = ome_types.from_xml(ome_xml)
 
-    dim_sizes = {'X': ome.images[0].pixels.physical_size_x, 'Y': ome.images[0].pixels.physical_size_y,
-                 'Z': ome.images[0].pixels.physical_size_z, 'T': ome.images[0].pixels.time_increment}
+        dim_sizes = {'X': ome.images[0].pixels.physical_size_x, 'Y': ome.images[0].pixels.physical_size_y,
+                     'Z': ome.images[0].pixels.physical_size_z, 'T': ome.images[0].pixels.time_increment}
 
-    vel_thresh_um = distance_thresh_um * dim_sizes['T']
+        vel_thresh_um = distance_thresh_um * dim_sizes['T']
 
-    weights = {'vol': 1, 'majax': 1, 'minax': 1, 'z_axis': 1, 'solidity': 1, 'surface_area': 1, 'intensity': 1}
-    num_frames = im.shape[0]
+        weights = {'vol': 1, 'majax': 1, 'minax': 1, 'z_axis': 1, 'solidity': 1, 'surface_area': 1, 'intensity': 1}
+        num_frames = im.shape[0]
 
-    tracks = track(num_frames, mask_im, im, dim_sizes, weights, vel_thresh_um, frame_thresh)
-    final_tracks = close_gaps(tracks, vel_thresh_um, frame_thresh, num_frames)
+        tracks = track(num_frames, mask_im, im, dim_sizes, weights, vel_thresh_um, frame_thresh)
+        final_tracks = close_gaps(tracks, vel_thresh_um, frame_thresh, num_frames)
+
+        # napari_tracks = []
+        # for track_num, track in enumerate(final_tracks):
+        #     # composed of [track_num, frame, z, y, x]
+        #     for mito in track['mitos']:
+        #         napari_tracks.append([track_num, mito.frame, mito.centroid[0] / dim_sizes['Z'],
+        #                             mito.centroid[1] / dim_sizes['Y'], mito.centroid[2] / dim_sizes['X']])
