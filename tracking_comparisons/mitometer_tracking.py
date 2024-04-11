@@ -58,7 +58,7 @@ def track(num_frames, mask_im, im, dim_sizes, weights, vel_thresh_um, frame_thre
             mito.surface_area = measure.mesh_surface_area(v, f)
             mito.frame = frame
             if frame == 0:
-                tracks.append({'mitos': [mito], 'frames': [frame]})
+                tracks.append({'mitos': [mito], 'frames': [frame], 'perfect': [True]})
 
     running_confidence_costs = []
     for frame in range(1, num_frames):
@@ -116,17 +116,19 @@ def track(num_frames, mask_im, im, dim_sizes, weights, vel_thresh_um, frame_thre
 
         # solve LAP (get min global cost assignments)
         row_ind, col_ind = linear_sum_assignment(assign_matrix)
+        # check where local and global assignments match
+        confident_assignments = xp.where(min_local[row_ind] == col_ind)[0]
 
         # add matched mito from LAP to track
         for i, j in zip(row_ind, col_ind):
+            confident = i in confident_assignments
             if j < len(tracks):
                 tracks[j]['mitos'].append(frame_mito[frame][i])
                 tracks[j]['frames'].append(frame)
+                tracks[j]['perfect'].append(confident)
             else:
-                tracks.append({'mitos': [frame_mito[frame][i]], 'frames': [frame]})
+                tracks.append({'mitos': [frame_mito[frame][i]], 'frames': [frame], 'perfect': [False]})
 
-        # check where local and global assignments match
-        confident_assignments = xp.where(min_local[row_ind] == col_ind)[0]
 
         confident_costs = assign_matrix[row_ind[confident_assignments], col_ind[confident_assignments]]
         running_confidence_costs.extend(confident_costs)
@@ -169,6 +171,107 @@ def get_track_angles(tracks):
     return tracks_angles
 
 
+def close_gaps(tracks, vel_thresh_um, frame_thresh, num_frames):
+    num_tracks = len(tracks)
+
+    clean = False
+    clean_num = 0
+    while not clean:
+        clean_num += 1
+
+        lost_tracks = []
+        new_tracks = []
+
+        for track_num, track in enumerate(tracks):
+            if track['frames'][-1] < num_frames - 1:
+                lost_tracks.append(track_num)
+            if track['frames'][0] > 0:
+                new_tracks.append(track_num)
+
+        lost_track_frames = np.array([tracks[lost_track]['frames'][-1] for lost_track in lost_tracks])
+        new_track_frames = np.array([tracks[new_track]['frames'][0] for new_track in new_tracks])
+
+        frame_diff_matrix = (new_track_frames[:, None] - lost_track_frames).astype(np.float64)
+        frame_diff_matrix[frame_diff_matrix < 1] = frame_thresh + 1
+        frame_diff_matrix[frame_diff_matrix > frame_thresh] = np.nan
+        frame_diff_matrix[frame_diff_matrix > 0] = 1
+
+        lost_track_coords = np.array([tracks[lost_track]['mitos'][-1].centroid_weighted for lost_track in lost_tracks])
+        new_track_coords = np.array([tracks[new_track]['mitos'][0].centroid_weighted for new_track in new_tracks])
+
+        # rows are new tracks, columns are lost tracks
+        distance_matrix = np.linalg.norm(new_track_coords[:, None] - lost_track_coords, axis=-1)
+        distance_matrix[distance_matrix > vel_thresh_um] = np.nan
+        distance_matrix *= frame_diff_matrix
+
+        valid_rows, valid_cols = np.where(np.isfinite(distance_matrix))
+        valid_matches = list(zip(valid_rows, valid_cols))
+
+        new_lost_cov_matrix = np.zeros((len(new_tracks), len(lost_tracks))) * np.nan
+        single_match_cost = -100
+        # if there's only a single non-nan value in the row of the distance matrix, then set the new_lost_cov_matrix value of that match index to -100
+        for i in range(len(new_tracks)):
+            if np.sum(np.isfinite(distance_matrix[i])) == 1:
+                new_lost_cov_matrix[i, np.where(np.isfinite(distance_matrix[i]))[0][0]] = single_match_cost
+        # get the new_lost_cov_matrix values of the valid matches
+        match_vals = [new_lost_cov_matrix[match[0], match[1]] for match in valid_matches]
+        # remove the matches from valid_matches
+        valid_matches = [valid_matches[i] for i in range(len(valid_matches)) if match_vals[i] != single_match_cost]
+
+        combined_tracks = []
+        for matched_new, matched_lost in valid_matches:
+            new_track = tracks[new_tracks[matched_new]]
+            lost_track = tracks[lost_tracks[matched_lost]]
+            combined_tracks.append({'mitos': lost_track['mitos'] + new_track['mitos'],
+                                    'frames': lost_track['frames'] + new_track['frames'],
+                                    'perfect': lost_track['perfect'] + new_track['perfect']})
+
+        combined_track_angles = get_track_angles(combined_tracks)
+        for match_num in range(len(valid_matches)):
+            xy_CoV = np.std(combined_track_angles['xy'][match_num]) / np.mean(combined_track_angles['xy'][match_num])
+            xz_CoV = np.std(combined_track_angles['xz'][match_num]) / np.mean(combined_track_angles['xz'][match_num])
+            yz_CoV = np.std(combined_track_angles['yz'][match_num]) / np.mean(combined_track_angles['yz'][match_num])
+            new_lost_cov_matrix[valid_matches[match_num]] = np.mean([xy_CoV, xz_CoV, yz_CoV])
+
+        angle_CoV_threshold = 0.1
+        new_lost_cov_matrix[new_lost_cov_matrix > angle_CoV_threshold] = np.nan
+        new_lost_cov_matrix[np.isnan(new_lost_cov_matrix)] = angle_CoV_threshold + 1
+
+        new_lost_matches = linear_sum_assignment(new_lost_cov_matrix)
+        # remove matches with inf cost
+        new_lost_matches = list(zip(new_lost_matches[0], new_lost_matches[1]))
+        new_lost_matches = [match for match in new_lost_matches if new_lost_cov_matrix[match] < angle_CoV_threshold]
+        # sort new_lost_matches by lowest to highest cost
+        new_lost_matches = sorted(new_lost_matches, key=lambda x: new_lost_cov_matrix[x])
+
+        combined_tracks = []
+        remove_idxs = []
+        for new_match, lost_match in new_lost_matches:
+            if new_tracks[new_match] in remove_idxs or lost_tracks[lost_match] in remove_idxs:
+                continue
+            new_track = tracks[new_tracks[new_match]]
+            lost_track = tracks[lost_tracks[lost_match]]
+            combined_tracks.append({'mitos': lost_track['mitos'] + new_track['mitos'],
+                                    'frames': lost_track['frames'] + new_track['frames'],
+                                    'perfect': lost_track['perfect'] + new_track['perfect']})
+
+            # remove the new_track and lost_track from the original tracks
+            remove_idxs.append(new_tracks[new_match])
+            remove_idxs.append(lost_tracks[lost_match])
+
+        final_tracks = [track for idx, track in enumerate(tracks) if idx not in remove_idxs]
+
+        final_tracks.extend(combined_tracks)
+        num_new_tracks = len(final_tracks)
+        print(f'Combined {len(combined_tracks)} tracks.')
+        if len(combined_tracks) == 0:
+            clean = True
+
+        tracks = final_tracks
+
+    return final_tracks
+
+
 distance_thresh_um = 1
 frame_thresh = 3
 
@@ -194,75 +297,4 @@ for file in tif_files[:1]:
     num_frames = im.shape[0]
 
     tracks = track(num_frames, mask_im, im, dim_sizes, weights, vel_thresh_um, frame_thresh)
-
-    # clean = False
-    # clean_num = 0
-    # while not clean:
-    #     clean_num += 1
-    #     lost_num = 1
-    #     new_num = 1
-
-    lost_tracks = []
-    new_tracks = []
-
-    for track_num, track in enumerate(tracks):
-        if track['frames'][-1] < num_frames - 1:
-            lost_tracks.append(track_num)
-        if track['frames'][0] > 0:
-            new_tracks.append(track_num)
-
-    lost_track_frames = np.array([tracks[lost_track]['frames'][-1] for lost_track in lost_tracks])
-    new_track_frames = np.array([tracks[new_track]['frames'][0] for new_track in new_tracks])
-
-    frame_diff_matrix = (new_track_frames[:, None] - lost_track_frames).astype(np.float64)
-    frame_diff_matrix[frame_diff_matrix < 1] = frame_thresh + 1
-    frame_diff_matrix[frame_diff_matrix > frame_thresh] = np.nan
-    frame_diff_matrix[frame_diff_matrix > 0] = 1
-
-    lost_track_coords = np.array([tracks[lost_track]['mitos'][-1].centroid_weighted for lost_track in lost_tracks])
-    new_track_coords = np.array([tracks[new_track]['mitos'][0].centroid_weighted for new_track in new_tracks])
-
-    # rows are new tracks, columns are lost tracks
-    distance_matrix = np.linalg.norm(new_track_coords[:, None] - lost_track_coords, axis=-1)
-    distance_matrix[distance_matrix > vel_thresh_um] = np.nan
-    distance_matrix *= frame_diff_matrix
-
-    valid_rows, valid_cols = np.where(np.isfinite(distance_matrix))
-    valid_matches = list(zip(valid_rows, valid_cols))
-
-    lost_track_angles = get_track_angles([tracks[lost_track] for lost_track in lost_tracks])
-    new_track_angles = get_track_angles([tracks[new_track] for new_track in new_tracks])
-
-    new_lost_cov_matrix = np.zeros((len(new_tracks), len(lost_tracks))) * np.nan
-    single_match_cost = -100
-    # if there's only a single non-nan value in the row of the distance matrix, then set the new_lost_cov_matrix value of that match index to -100
-    for i in range(len(new_tracks)):
-        if np.sum(np.isfinite(distance_matrix[i])) == 1:
-            new_lost_cov_matrix[i, np.where(np.isfinite(distance_matrix[i]))[0][0]] = single_match_cost
-    # get the new_lost_cov_matrix values of the valid matches
-    match_vals = [new_lost_cov_matrix[match[0], match[1]] for match in valid_matches]
-    # remove the matches from valid_matches
-    valid_matches = [valid_matches[i] for i in range(len(valid_matches)) if match_vals[i] != single_match_cost]
-
-    combined_tracks = []
-    for matched_new, matched_lost in valid_matches:
-        new_track = tracks[new_tracks[matched_new]]
-        lost_track = tracks[lost_tracks[matched_lost]]
-        combined_tracks.append({'mitos': lost_track['mitos'] + new_track['mitos'],
-                                'frames': lost_track['frames'] + new_track['frames']})
-
-    combined_track_angles = get_track_angles(combined_tracks)
-    for match_num in range(len(valid_matches)):
-        xy_CoV = np.std(combined_track_angles['xy'][match_num]) / np.mean(combined_track_angles['xy'][match_num])
-        xz_CoV = np.std(combined_track_angles['xz'][match_num]) / np.mean(combined_track_angles['xz'][match_num])
-        yz_CoV = np.std(combined_track_angles['yz'][match_num]) / np.mean(combined_track_angles['yz'][match_num])
-        new_lost_cov_matrix[valid_matches[match_num]] = np.mean([xy_CoV, xz_CoV, yz_CoV])
-
-    angle_CoV_threshold = 0.1
-    new_lost_cov_matrix[new_lost_cov_matrix > angle_CoV_threshold] = np.nan
-    new_lost_cov_matrix[np.isnan(new_lost_cov_matrix)] = angle_CoV_threshold + 1
-
-    new_lost_matches = linear_sum_assignment(new_lost_cov_matrix)
-    # remove matches with inf cost
-    new_lost_matches = list(zip(new_lost_matches[0], new_lost_matches[1]))
-    new_lost_matches = [match for match in new_lost_matches if new_lost_cov_matrix[match] < angle_CoV_threshold]
+    final_tracks = close_gaps(tracks, vel_thresh_um, frame_thresh, num_frames)
