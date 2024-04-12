@@ -63,8 +63,9 @@ if __name__ == "__main__":
     # top_dir = r"C:\Users\austin\GitHub\nellie-simulations\separation\separation"
     # time_series_dir = r"C:\Users\austin\GitHub\nellie-simulations\separation\time_series"
 
-    top_dir = r"C:\Users\austin\GitHub\nellie-simulations\px_sizes\px_sizes"
-    time_series_dir = r"C:\Users\austin\GitHub\nellie-simulations\px_sizes\time_series"
+    top_dir = r"/Users/austin/GitHub/nellie-simulations/motion/angular"
+    time_series_dir = r"/Users/austin/GitHub/nellie-simulations/motion/angular"
+    full_temporal = True
 
     output_dir = os.path.join(top_dir, 'mitometer')
     if not os.path.exists(output_dir):
@@ -84,6 +85,7 @@ if __name__ == "__main__":
         # def run_frame(stack):
         stack = xp.asarray(stack)
         # convert 16-bit to 8-bit image as done in paper
+        print(stack.dtype)
         if stack.dtype == 'uint16':
             stack = xp.round(stack / 256).astype(xp.uint8)
 
@@ -145,8 +147,16 @@ if __name__ == "__main__":
         best_thresh = int(thresh_matrix[int(min_indices[0])])
         best_sigma = float(sigma_matrix[int(min_indices[1])])
 
-        final_seg = ndi.gaussian_filter(all_im_bg_removed_timepoints[0], sigma=best_sigma) > best_thresh
+        if full_temporal:
+            final_seg = []
+            for t in range(num_t):
+                final_seg.append(ndi.gaussian_filter(all_im_bg_removed_timepoints[t], sigma=best_sigma) > best_thresh)
+            final_seg = xp.asarray(final_seg)
+        else:
+            final_seg = ndi.gaussian_filter(all_im_bg_removed_timepoints[0], sigma=best_sigma) > best_thresh
 
-        tifffile.imwrite(os.path.join(output_dir, file_names[file_num]), final_seg.get())
+        if device_type == 'cuda':
+            final_seg = final_seg.get()
+        tifffile.imwrite(os.path.join(output_dir, file_names[file_num]), final_seg)
 # save tif
 

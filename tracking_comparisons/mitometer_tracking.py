@@ -272,16 +272,24 @@ def close_gaps(tracks, vel_thresh_um, frame_thresh, num_frames):
     return final_tracks
 
 
+def clean_mask(mask_im, min_size):
+    label_im, num_labels = ndi.label(mask_im, structure=np.ones((3, 3, 3)))
+    # use bincounts
+    areas = np.bincount(label_im.ravel())[1:]
+    mask_im = np.isin(label_im, np.where(areas >= min_size)[0])
+    return mask_im
+
+
 if __name__ == '__main__':
     distance_thresh_um = 1
     frame_thresh = 3
 
-    top_dir = r"C:\Users\austin\GitHub\nellie-simulations\motion\linear"
+    top_dir = r"/Users/austin/GitHub/nellie-simulations/motion/angular"
     all_files = os.listdir(top_dir)
     tif_files = [file for file in all_files if file.endswith('.tif')]
     for file in tif_files[:1]:
-        noiseless_path = os.path.join(top_dir, 'noiseless', file)
-        mask_im = tifffile.imread(noiseless_path) > 0
+        # noiseless_path = os.path.join(top_dir, 'noiseless', file)
+        mask_im = tifffile.imread(os.path.join(top_dir, file)) > 0
 
         im_path = os.path.join(top_dir, file)
         im = tifffile.imread(os.path.join(top_dir, file))
@@ -297,7 +305,10 @@ if __name__ == '__main__':
         num_frames = im.shape[0]
 
         tracks = track(num_frames, mask_im, im, dim_sizes, weights, vel_thresh_um, frame_thresh)
-        final_tracks = close_gaps(tracks, vel_thresh_um, frame_thresh, num_frames)
+        if len(tracks) > 1:
+            final_tracks = close_gaps(tracks, vel_thresh_um, frame_thresh, num_frames)
+        else:
+            final_tracks = tracks
 
         # napari_tracks = []
         # for track_num, track in enumerate(final_tracks):
