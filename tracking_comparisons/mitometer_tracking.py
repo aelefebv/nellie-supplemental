@@ -290,6 +290,7 @@ if __name__ == '__main__':
     for file in tif_files[:1]:
         # noiseless_path = os.path.join(top_dir, 'noiseless', file)
         mask_im = tifffile.imread(os.path.join(top_dir, file)) > 0
+        mask_im = clean_mask(mask_im, 4)
 
         im_path = os.path.join(top_dir, file)
         im = tifffile.imread(os.path.join(top_dir, file))

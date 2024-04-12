@@ -63,8 +63,8 @@ if __name__ == "__main__":
     # top_dir = r"C:\Users\austin\GitHub\nellie-simulations\separation\separation"
     # time_series_dir = r"C:\Users\austin\GitHub\nellie-simulations\separation\time_series"
 
-    top_dir = r"/Users/austin/GitHub/nellie-simulations/motion/angular"
-    time_series_dir = r"/Users/austin/GitHub/nellie-simulations/motion/angular"
+    top_dir = time_series_dir = r"/Users/austin/GitHub/nellie-simulations/motion/linear"
+    # time_series_dir = r"/Users/austin/GitHub/nellie-simulations/motion/angular"
     full_temporal = True
 
     output_dir = os.path.join(top_dir, 'mitometer')
