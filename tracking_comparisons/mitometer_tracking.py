@@ -273,11 +273,15 @@ def close_gaps(tracks, vel_thresh_um, frame_thresh, num_frames):
 
 
 def clean_mask(mask_im, min_size):
-    label_im, num_labels = ndi.label(mask_im, structure=np.ones((3, 3, 3)))
-    # use bincounts
-    areas = np.bincount(label_im.ravel())[1:]
-    mask_im = np.isin(label_im, np.where(areas >= min_size)[0])
-    return mask_im
+    final_mask = []
+    for mask_frame in mask_im:
+        label_im, num_labels = ndi.label(mask_frame, structure=np.ones((3, 3, 3)))
+        # use bincounts
+        areas = np.bincount(label_im.ravel())[1:]
+        mask_im = np.isin(label_im, np.where(areas <= min_size)[0])
+        final_mask.append(mask_im)
+    final_mask = np.array(final_mask)
+    return final_mask
 
 
 if __name__ == '__main__':
@@ -287,7 +291,7 @@ if __name__ == '__main__':
     top_dir = r"/Users/austin/GitHub/nellie-simulations/motion/angular"
     all_files = os.listdir(top_dir)
     tif_files = [file for file in all_files if file.endswith('.tif')]
-    for file in tif_files[:1]:
+    for file in tif_files[1:2]:
         # noiseless_path = os.path.join(top_dir, 'noiseless', file)
         mask_im = tifffile.imread(os.path.join(top_dir, file)) > 0
         mask_im = clean_mask(mask_im, 4)
@@ -311,9 +315,9 @@ if __name__ == '__main__':
         else:
             final_tracks = tracks
 
-        # napari_tracks = []
-        # for track_num, track in enumerate(final_tracks):
-        #     # composed of [track_num, frame, z, y, x]
-        #     for mito in track['mitos']:
-        #         napari_tracks.append([track_num, mito.frame, mito.centroid[0] / dim_sizes['Z'],
-        #                             mito.centroid[1] / dim_sizes['Y'], mito.centroid[2] / dim_sizes['X']])
+        napari_tracks = []
+        for track_num, track in enumerate(final_tracks):
+            # composed of [track_num, frame, z, y, x]
+            for mito in track['mitos']:
+                napari_tracks.append([track_num, mito.frame, mito.centroid[0] / dim_sizes['Z'],
+                                    mito.centroid[1] / dim_sizes['Y'], mito.centroid[2] / dim_sizes['X']])
