@@ -11,15 +11,19 @@ from mitotnt import generate_tracking_inputs, network_tracking
 
 def convert(im_dir, im_name):
     im = tifffile.imread(os.path.join(im_dir, im_name)).astype(np.uint16)
+    im_name_no_ext = im_name.split('.')[0]
+    all_output_path = os.path.join(im_dir, 'mitoTNT', im_name_no_ext)
     for i, frame in enumerate(im):
-        new_dir = os.path.join(im_dir, f"frame_{i}")
+        new_dir = os.path.join(all_output_path, f"frame_{i}")
         os.makedirs(new_dir, exist_ok=True)
         tifffile.imwrite(os.path.join(new_dir, f"frame_{i}.tif"), frame)
-    return im
+    return im, f"{all_output_path}/"
 
 
 def run_mitograph(frame_dir, lateral_pixel_size, axial_pixel_size, mitograph_dir):
-    command = f"{mitograph_dir}/MitoGraph -xy {lateral_pixel_size} -z {axial_pixel_size} -path {frame_dir}/"
+    command = (f"{os.path.join(mitograph_dir, 'MitoGraph')} "
+               f"-xy {lateral_pixel_size} -z {axial_pixel_size} "
+               f"-path {frame_dir}/")
     print(command)
     os.system(command)
 
@@ -39,7 +43,7 @@ def parallel_mitograph(im_dir, lateral_pixel_size, axial_pixel_size, mitograph_d
 def run_mitotnt(im_dir, start_frame, end_frame, frame_interval, tracking_interval):
     # keeping defaults for sake of automation comparison.
 
-    input_dir = os.path.join(im_dir, 'tracking_inputs')
+    input_dir = os.path.join(im_dir, 'tracking_inputs') + '/'
     if not os.path.isdir(input_dir):
         os.mkdir(input_dir)
 
@@ -48,7 +52,7 @@ def run_mitotnt(im_dir, start_frame, end_frame, frame_interval, tracking_interva
                                       node_gap_size=0)
 
     # specify additional directories
-    output_dir = im_dir + 'tracking_outputs/'
+    output_dir = os.path.join(im_dir, 'tracking_outputs') + '/'
     if not os.path.isdir(output_dir):
         os.mkdir(output_dir)
 
@@ -61,16 +65,19 @@ def run_mitotnt(im_dir, start_frame, end_frame, frame_interval, tracking_interva
 
 
 if __name__ == "__main__":
-    im_dir = "/Users/austin/Downloads/sim2/"
-    im_name = "multi_length-1.ome.tif"
+    # '/Users/austin/GitHub/nellie-simulations/motion/linear/multi_length-long_axis_False-std_512-t_0p5.ome.tif'
+    full_path = '/Users/austin/GitHub/nellie-simulations/motion/linear/outputs/multi_length-long_axis_False-std_512-t_1.ome.tif'
     mitograph_dir = "/Users/austin/Desktop/MitoGraph"
     visualize = True
 
-    im = convert(im_dir, im_name)
+    im_dir = os.path.dirname(full_path)
+    im_name = os.path.basename(full_path)
+    im_dir += "/"
+    im, output_path = convert(im_dir, im_name)
 
     # get metadata
     num_frames = len(im)
-    ome_xml = tifffile.tiffcomment(os.path.join(im_dir, im_name))
+    ome_xml = tifffile.tiffcomment(full_path)
     ome = ome_types.from_xml(ome_xml)
     lateral_px_size = ome.images[0].pixels.physical_size_x
     axial_px_size = ome.images[0].pixels.physical_size_z
@@ -79,14 +86,13 @@ if __name__ == "__main__":
     start_frame = 0
     end_frame = num_frames - 1
 
-    parallel_mitograph(im_dir, lateral_px_size, axial_px_size, mitograph_dir)
-    run_mitotnt(im_dir, start_frame, end_frame, frame_interval, tracking_interval)
+    parallel_mitograph(output_path, lateral_px_size, axial_px_size, mitograph_dir)
+    run_mitotnt(output_path, start_frame, end_frame, frame_interval, tracking_interval)
 
     if visualize:
         import napari
-
         viewer = napari.Viewer()
-        track_file = os.path.join(im_dir, 'tracking_outputs', 'final_node_tracks.csv')
+        track_file = os.path.join(output_path, 'tracking_outputs', 'final_node_tracks.csv')
         df = pd.read_csv(track_file)
 
         napari_tracks = []
@@ -98,3 +104,5 @@ if __name__ == "__main__":
         viewer.add_tracks(napari_tracks)
         # for some reason, y is flipped in the mitotnt outputs... could be graph-like coords vs image coords
         viewer.add_image(im[:, :, ::-1, ...], name='im', scale=(axial_px_size, lateral_px_size, lateral_px_size))
+
+        napari.run()
