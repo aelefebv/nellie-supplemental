@@ -5,7 +5,7 @@ import tifffile
 import numpy as np
 
 
-im_path = '/Users/austin/GitHub/nellie-simulations/motion/angular/outputs/angular-length_32-std_512-t_1.ome.tif'
+im_path = '/Users/austin/GitHub/nellie-simulations/motion/fission_fusion/outputs/fission-std_fission-std_2048-t_1.ome.tif'
 
 im_dir, im_name = os.path.dirname(im_path), os.path.basename(im_path).split('.')[0]
 output_path = f'{im_dir}/mitoTNT/{im_name}/tracking_outputs'

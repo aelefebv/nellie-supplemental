@@ -3,6 +3,10 @@ from tifffile import tifffile
 import ome_types
 import numpy as np
 from skimage import measure
+import pickle
+
+from comparisons.segmentation_comparisons import mitometer
+
 # try:
 #     import cupy as xp
 #     import cupyx.scipy.ndimage as ndi
@@ -49,8 +53,10 @@ def track(num_frames, mask_im, im, dim_sizes, weights, vel_thresh_um, frame_thre
     frame_mito = {}
     for frame in range(num_frames):
         label_im, num_labels = ndi.label(mask_im[frame], structure=np.ones((3, 3, 3)))
-        frame_mito[frame] = measure.regionprops(label_im, intensity_image=im[frame],
+        frame_regions = measure.regionprops(label_im, intensity_image=im[frame],
                                                 spacing=(dim_sizes['Z'], dim_sizes['Y'], dim_sizes['X']))
+        # remove any mito with only 1 voxel in any dimension
+        frame_mito[frame] = [mito for mito in frame_regions if not np.any(np.array(mito.image.shape) == 1)]
         for mito in frame_mito[frame]:
             # get surface area
             v, f, _, _ = measure.marching_cubes(mito.intensity_image > 0,
@@ -59,6 +65,9 @@ def track(num_frames, mask_im, im, dim_sizes, weights, vel_thresh_um, frame_thre
             mito.frame = frame
             if frame == 0:
                 tracks.append({'mitos': [mito], 'frames': [frame], 'perfect': [True]})
+            # else:
+            #     mito.surface_area = 0
+            #     mito.frame = frame
 
     running_confidence_costs = []
     for frame in range(1, num_frames):
@@ -278,7 +287,7 @@ def clean_mask(mask_im, min_size):
         label_im, num_labels = ndi.label(mask_frame, structure=np.ones((3, 3, 3)))
         # use bincounts
         areas = np.bincount(label_im.ravel())[1:]
-        mask_im = np.isin(label_im, np.where(areas <= min_size)[0])
+        mask_im = np.where(np.isin(label_im, np.where(areas > min_size)[0] + 1), label_im, 0) > 0
         final_mask.append(mask_im)
     final_mask = np.array(final_mask)
     return final_mask
@@ -288,36 +297,50 @@ if __name__ == '__main__':
     distance_thresh_um = 1
     frame_thresh = 3
 
-    top_dir = r"/Users/austin/GitHub/nellie-simulations/motion/angular"
-    all_files = os.listdir(top_dir)
-    tif_files = [file for file in all_files if file.endswith('.tif')]
-    for file in tif_files[1:2]:
-        # noiseless_path = os.path.join(top_dir, 'noiseless', file)
-        mask_im = tifffile.imread(os.path.join(top_dir, file)) > 0
-        mask_im = clean_mask(mask_im, 4)
+    top_dirs = [
+        '/Users/austin/GitHub/nellie-simulations/motion/fission_fusion/outputs',
+        '/Users/austin/GitHub/nellie-simulations/motion/linear/outputs',
+        '/Users/austin/GitHub/nellie-simulations/motion/angular/outputs',
+    ]
+    for top_dir in top_dirs:
+        all_files = os.listdir(top_dir)
+        all_files = [os.path.join(top_dir, file) for file in all_files if file.endswith('.tif')]
+        for file in all_files:
+            try:
+                im_path = os.path.join(top_dir, file)
+                file_name = os.path.basename(file).split('.')[0]
+                # noiseless_path = os.path.join(top_dir, 'noiseless', file)
+                # mask_im = tifffile.imread(os.path.join(top_dir, file)) > 0
+                mask_im, output_mask_dir = mitometer.run(im_path) > 0
+                mask_im = clean_mask(mask_im, 4)
 
-        im_path = os.path.join(top_dir, file)
-        im = tifffile.imread(os.path.join(top_dir, file))
-        ome_xml = tifffile.tiffcomment(im_path)
-        ome = ome_types.from_xml(ome_xml)
+                im = tifffile.imread(os.path.join(top_dir, file))
+                ome_xml = tifffile.tiffcomment(im_path)
+                ome = ome_types.from_xml(ome_xml)
 
-        dim_sizes = {'X': ome.images[0].pixels.physical_size_x, 'Y': ome.images[0].pixels.physical_size_y,
-                     'Z': ome.images[0].pixels.physical_size_z, 'T': ome.images[0].pixels.time_increment}
+                dim_sizes = {'X': ome.images[0].pixels.physical_size_x, 'Y': ome.images[0].pixels.physical_size_y,
+                             'Z': ome.images[0].pixels.physical_size_z, 'T': ome.images[0].pixels.time_increment}
 
-        vel_thresh_um = distance_thresh_um * dim_sizes['T']
+                vel_thresh_um = distance_thresh_um * dim_sizes['T']
 
-        weights = {'vol': 1, 'majax': 1, 'minax': 1, 'z_axis': 1, 'solidity': 1, 'surface_area': 1, 'intensity': 1}
-        num_frames = im.shape[0]
+                weights = {'vol': 1, 'majax': 1, 'minax': 1, 'z_axis': 1, 'solidity': 1, 'surface_area': 1, 'intensity': 1}
+                num_frames = im.shape[0]
 
-        tracks = track(num_frames, mask_im, im, dim_sizes, weights, vel_thresh_um, frame_thresh)
-        if len(tracks) > 1:
-            final_tracks = close_gaps(tracks, vel_thresh_um, frame_thresh, num_frames)
-        else:
-            final_tracks = tracks
+                tracks = track(num_frames, mask_im, im, dim_sizes, weights, vel_thresh_um, frame_thresh)
+                if len(tracks) > 1:
+                    final_tracks = close_gaps(tracks, vel_thresh_um, frame_thresh, num_frames)
+                else:
+                    final_tracks = tracks
 
-        napari_tracks = []
-        for track_num, track in enumerate(final_tracks):
-            # composed of [track_num, frame, z, y, x]
-            for mito in track['mitos']:
-                napari_tracks.append([track_num, mito.frame, mito.centroid[0] / dim_sizes['Z'],
-                                    mito.centroid[1] / dim_sizes['Y'], mito.centroid[2] / dim_sizes['X']])
+                # save pickled final_tracks
+                with open(os.path.join(output_mask_dir, f'{file_name}-final_tracks.pkl'), 'wb') as f:
+                    pickle.dump(final_tracks, f)
+            except:
+                print(f'Failed on {file}')
+
+            # napari_tracks = []
+            # for track_num, track in enumerate(final_tracks):
+            #     # composed of [track_num, frame, z, y, x]
+            #     for mito in track['mitos']:
+            #         napari_tracks.append([track_num, mito.frame, mito.centroid[0] / dim_sizes['Z'],
+            #                             mito.centroid[1] / dim_sizes['Y'], mito.centroid[2] / dim_sizes['X']])
