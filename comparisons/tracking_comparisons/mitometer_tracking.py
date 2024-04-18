@@ -53,10 +53,21 @@ def track(num_frames, mask_im, im, dim_sizes, weights, vel_thresh_um, frame_thre
     frame_mito = {}
     for frame in range(num_frames):
         label_im, num_labels = ndi.label(mask_im[frame], structure=np.ones((3, 3, 3)))
+        if num_labels > 100:
+            print(f'Frame {frame} has {num_labels} mitochondria. Skipping.')
+            return []
         frame_regions = measure.regionprops(label_im, intensity_image=im[frame],
                                                 spacing=(dim_sizes['Z'], dim_sizes['Y'], dim_sizes['X']))
         # remove any mito with only 1 voxel in any dimension
         frame_mito[frame] = [mito for mito in frame_regions if not np.any(np.array(mito.image.shape) == 1)]
+        # get axis minor length
+        for mito in frame_mito[frame]:
+            try:
+                mito.minor_axis_length
+            except ValueError:
+                # remove the mito
+                frame_mito[frame].remove(mito)
+
         for mito in frame_mito[frame]:
             # get surface area
             v, f, _, _ = measure.marching_cubes(mito.intensity_image > 0,
@@ -182,6 +193,7 @@ def get_track_angles(tracks):
 
 def close_gaps(tracks, vel_thresh_um, frame_thresh, num_frames):
     num_tracks = len(tracks)
+    final_tracks = tracks
 
     clean = False
     clean_num = 0
@@ -207,6 +219,9 @@ def close_gaps(tracks, vel_thresh_um, frame_thresh, num_frames):
 
         lost_track_coords = np.array([tracks[lost_track]['mitos'][-1].centroid_weighted for lost_track in lost_tracks])
         new_track_coords = np.array([tracks[new_track]['mitos'][0].centroid_weighted for new_track in new_tracks])
+
+        if len(lost_track_coords) == 0 or len(new_track_coords) == 0:
+            break
 
         # rows are new tracks, columns are lost tracks
         distance_matrix = np.linalg.norm(new_track_coords[:, None] - lost_track_coords, axis=-1)
@@ -306,37 +321,54 @@ if __name__ == '__main__':
         all_files = os.listdir(top_dir)
         all_files = [os.path.join(top_dir, file) for file in all_files if file.endswith('.tif')]
         for file in all_files:
-            try:
-                im_path = os.path.join(top_dir, file)
-                file_name = os.path.basename(file).split('.')[0]
-                # noiseless_path = os.path.join(top_dir, 'noiseless', file)
-                # mask_im = tifffile.imread(os.path.join(top_dir, file)) > 0
-                mask_im, output_mask_dir = mitometer.run(im_path) > 0
-                mask_im = clean_mask(mask_im, 4)
+            # try:
+            im_path = os.path.join(top_dir, file)
+            file_name = os.path.basename(file).split('.')[0]
 
-                im = tifffile.imread(os.path.join(top_dir, file))
-                ome_xml = tifffile.tiffcomment(im_path)
-                ome = ome_types.from_xml(ome_xml)
+            top_dir = os.path.dirname(im_path)
+            im_name = os.path.basename(im_path)
 
-                dim_sizes = {'X': ome.images[0].pixels.physical_size_x, 'Y': ome.images[0].pixels.physical_size_y,
-                             'Z': ome.images[0].pixels.physical_size_z, 'T': ome.images[0].pixels.time_increment}
+            output_dir = os.path.join(top_dir, 'mitometer')
+            if not os.path.exists(output_dir):
+                os.makedirs(output_dir)
 
-                vel_thresh_um = distance_thresh_um * dim_sizes['T']
+            output_name = os.path.join(output_dir, im_name)
+            pkl_path = os.path.join(output_dir, f'{file_name}-final_tracks.pkl')
+            if os.path.exists(pkl_path):
+                continue
+            if os.path.exists(output_dir):
+                mask_im = tifffile.imread(os.path.join(output_dir, im_name))
+                output_mask_dir = output_dir
+            else:
+                mask_im, output_mask_dir = mitometer.run(im_path)
 
-                weights = {'vol': 1, 'majax': 1, 'minax': 1, 'z_axis': 1, 'solidity': 1, 'surface_area': 1, 'intensity': 1}
-                num_frames = im.shape[0]
+            print(f'Running on {file}')
+            mask_im = mask_im > 0
+            mask_im = clean_mask(mask_im, 4)
 
-                tracks = track(num_frames, mask_im, im, dim_sizes, weights, vel_thresh_um, frame_thresh)
-                if len(tracks) > 1:
-                    final_tracks = close_gaps(tracks, vel_thresh_um, frame_thresh, num_frames)
-                else:
-                    final_tracks = tracks
+            im = tifffile.imread(os.path.join(top_dir, file))
+            ome_xml = tifffile.tiffcomment(im_path)
+            ome = ome_types.from_xml(ome_xml)
 
-                # save pickled final_tracks
-                with open(os.path.join(output_mask_dir, f'{file_name}-final_tracks.pkl'), 'wb') as f:
-                    pickle.dump(final_tracks, f)
-            except:
-                print(f'Failed on {file}')
+            dim_sizes = {'X': ome.images[0].pixels.physical_size_x, 'Y': ome.images[0].pixels.physical_size_y,
+                         'Z': ome.images[0].pixels.physical_size_z, 'T': ome.images[0].pixels.time_increment}
+
+            vel_thresh_um = distance_thresh_um * dim_sizes['T']
+
+            weights = {'vol': 1, 'majax': 1, 'minax': 1, 'z_axis': 1, 'solidity': 1, 'surface_area': 1, 'intensity': 1}
+            num_frames = im.shape[0]
+
+            tracks = track(num_frames, mask_im, im, dim_sizes, weights, vel_thresh_um, frame_thresh)
+            if len(tracks) > 1:
+                final_tracks = close_gaps(tracks, vel_thresh_um, frame_thresh, num_frames)
+            else:
+                final_tracks = tracks
+
+            # save pickled final_tracks
+            with open(os.path.join(output_mask_dir, f'{file_name}-final_tracks.pkl'), 'wb') as f:
+                pickle.dump(final_tracks, f)
+            # except:
+            #     print(f'Failed on {file}')
 
             # napari_tracks = []
             # for track_num, track in enumerate(final_tracks):
