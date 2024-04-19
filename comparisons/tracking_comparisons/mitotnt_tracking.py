@@ -15,6 +15,7 @@ def get_mitotnt_output_path(im_dir, im_name):
     all_output_path = os.path.join(im_dir, 'mitoTNT', im_name_no_ext)
     return im, all_output_path
 
+
 def convert(im, mitotnt_output_path):
     for i, frame in enumerate(im):
         new_dir = os.path.join(mitotnt_output_path, f"frame_{i}")
