@@ -105,7 +105,6 @@ def parallel_mitograph(im_dir, lateral_pixel_size, axial_pixel_size, mitograph_d
 
 
 if __name__ == "__main__":
-    # '/Users/austin/GitHub/nellie-simulations/motion/linear/multi_length-long_axis_False-std_512-t_0p5.ome.tif'
     top_dirs = [
         '/Users/austin/test_files/simulations',
     ]
@@ -119,17 +118,18 @@ if __name__ == "__main__":
         all_files = [os.path.join(top_dir, file) for file in all_files if file.endswith('.tif')]
         # remove any files with '8192' in the name... too much noise for MitoTNT to handle
         all_files = [file for file in all_files if '8192' not in file]
-        for full_path in all_files[:1]:
-        # full_path = '/Users/austin/GitHub/nellie-simulations/motion/angular/outputs/angular-length_32-std_512-t_0p5.ome.tif'
+        for full_path in all_files:
             mitograph_dir = "/Users/austin/Desktop/MitoGraph"
 
             im_dir = os.path.dirname(full_path)
             im_name = os.path.basename(full_path)
             im_dir += "/"
+
             im, mitograph_input_path = get_mitograph_output_path(im_dir, im_name)
 
-            # load image
-            # im = tifffile.imread(full_path).astype('uint16')
+            if os.path.exists(mitograph_input_path):
+                print(f'{mitograph_input_path} already exists, skipping')
+                continue
 
             output_path = convert(im, mitograph_input_path)
 
