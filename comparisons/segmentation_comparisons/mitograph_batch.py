@@ -4,12 +4,17 @@ import tifffile
 import ome_types
 import pandas as pd
 import numpy as np
+import subprocess
+
+# implementing timeouts after 5 minutes or these simulation validations are going to take wayyyy too long on mitograph...
+# plus long processing means it did not segment properly.
 
 def get_mitograph_output_path(im_dir, im_name):
     im = tifffile.imread(os.path.join(im_dir, im_name)).astype(np.uint16)
     im_name_no_ext = im_name.split('.')[0]
     all_output_path = os.path.join(im_dir, 'Mitograph', im_name_no_ext)
     return im, all_output_path
+
 
 def convert(im, mitograph_input_dir):
     for i, frame in enumerate(im):
@@ -24,7 +29,15 @@ def run_mitograph(frame_dir, lateral_pixel_size, axial_pixel_size, mitograph_dir
                f"-xy {lateral_pixel_size} -z {axial_pixel_size} "
                f"-path {frame_dir}/")
     print(command)
-    os.system(command)
+    try:
+        subprocess.run(command, shell=True, timeout=300, check=True)  # 300 seconds or 5 minutes
+    except subprocess.TimeoutExpired:
+        print("Command timed out!")
+        return "timeout"
+    except subprocess.CalledProcessError as e:
+        print(f"Error executing command: {e}")
+        return "failure"
+    # os.system(command)
     reconstruct_image(frame_dir, mask=True)
 
 
@@ -92,60 +105,105 @@ def reconstruct_image(frame_dir, mask=False):
     tifffile.imwrite(os.path.join(frame_dir, 'reconstructed.tif'), reconstructed_im)
 
 
-def parallel_mitograph(im_dir, lateral_pixel_size, axial_pixel_size, mitograph_dir):
+def process_file(full_path):
+    mitograph_dir = "/Users/austin/Desktop/MitoGraph"
+    im_dir = os.path.dirname(full_path)
+    im_name = os.path.basename(full_path)
+    im_dir += "/"
+
+    im, mitograph_input_path = get_mitograph_output_path(im_dir, im_name)
+
+    if os.path.exists(mitograph_input_path):
+        print(f'{mitograph_input_path} already exists, skipping')
+        return
+
+    output_path = convert(im, mitograph_input_path)
+
+    # Get metadata
+    ome_xml = tifffile.tiffcomment(full_path)
+    ome = ome_types.from_xml(ome_xml)
+    lateral_px_size = ome.images[0].pixels.physical_size_x
+    axial_px_size = ome.images[0].pixels.physical_size_z
+
+    all_frames = sorted(os.listdir(output_path))
+    all_frames = [os.path.join(output_path, frame) for frame in all_frames if os.path.isdir(os.path.join(output_path, frame))]
+    for frame in all_frames:
+        try:
+            run_mitograph(frame, lateral_px_size, axial_px_size, mitograph_dir)
+        except TimeoutError:
+            print(f"Failed on {full_path}")
+
+
+def parallel_process_files(top_dirs):
     num_processes = os.cpu_count()
 
-    all_frames = sorted(os.listdir(im_dir))
-    all_frames = [os.path.join(im_dir, frame) for frame in all_frames if os.path.isdir(os.path.join(im_dir, frame))]
-    tasks = [(frame, lateral_pixel_size, axial_pixel_size, mitograph_dir) for frame in all_frames]
+    all_files = []
+    for top_dir in top_dirs:
+        dir_files = os.listdir(top_dir)
+        dir_files = [os.path.join(top_dir, file) for file in dir_files if file.endswith('.tif')]
+        all_files.extend(dir_files)
 
-    for i in range(0, len(tasks), num_processes):
-        with Pool(num_processes) as p:
-            p.starmap(run_mitograph, tasks[i:i + num_processes])
+    with Pool(num_processes) as pool:
+        results = [pool.apply_async(process_file, (file,)) for file in all_files]
+        for result in results:
+            try:
+                result.get(timeout=360)  # 6 minutes to give a bit extra time over run_mitograph
+            except:
+                print("Processing file timed out!")
+
+
+# def parallel_mitograph(im_dir, lateral_pixel_size, axial_pixel_size, mitograph_dir):
+#     num_processes = os.cpu_count()
+#
+#     all_frames = sorted(os.listdir(im_dir))
+#     all_frames = [os.path.join(im_dir, frame) for frame in all_frames if os.path.isdir(os.path.join(im_dir, frame))]
+#     tasks = [(frame, lateral_pixel_size, axial_pixel_size, mitograph_dir) for frame in all_frames]
+#
+#     for i in range(0, len(tasks), num_processes):
+#         with Pool(num_processes) as p:
+#             p.starmap(run_mitograph, tasks[i:i + num_processes])
 
 
 if __name__ == "__main__":
     top_dirs = [
-        '/Users/austin/test_files/simulations',
+        '/Users/austin/test_files/simulations/px_sizes/outputs',
+        '/Users/austin/test_files/simulations/separation/outputs',
+        '/Users/austin/test_files/simulations/multi_grid/outputs',
     ]
+    parallel_process_files(top_dirs)
     visualize = False
 
     viewer = None
 
-    for top_dir in top_dirs:
-        # get all files that end in .tif:
-        all_files = os.listdir(top_dir)
-        all_files = [os.path.join(top_dir, file) for file in all_files if file.endswith('.tif')]
-        # remove any files with '8192' in the name... too much noise for MitoTNT to handle
-        all_files = [file for file in all_files if '8192' not in file]
-        for full_path in all_files:
-            mitograph_dir = "/Users/austin/Desktop/MitoGraph"
-
-            im_dir = os.path.dirname(full_path)
-            im_name = os.path.basename(full_path)
-            im_dir += "/"
-
-            im, mitograph_input_path = get_mitograph_output_path(im_dir, im_name)
-
-            if os.path.exists(mitograph_input_path):
-                print(f'{mitograph_input_path} already exists, skipping')
-                continue
-
-            output_path = convert(im, mitograph_input_path)
-
-            # get metadata
-            num_frames = len(im)
-            ome_xml = tifffile.tiffcomment(full_path)
-            ome = ome_types.from_xml(ome_xml)
-            lateral_px_size = ome.images[0].pixels.physical_size_x
-            axial_px_size = ome.images[0].pixels.physical_size_z
-            frame_interval = ome.images[0].pixels.time_increment
-            tracking_interval = 1
-            start_frame = 0
-            end_frame = num_frames - 1
-
-            try:
-                parallel_mitograph(output_path, lateral_px_size, axial_px_size, mitograph_dir)
-            except:
-                print(f"Failed on {full_path}")
-                continue
+    # for top_dir in top_dirs:
+        # # get all files that end in .tif:
+        # all_files = os.listdir(top_dir)
+        # all_files = [os.path.join(top_dir, file) for file in all_files if file.endswith('.tif')]
+        # # remove any files with '8192' in the name... too much noise for MitoTNT to handle
+        # # all_files = [file for file in all_files if '8192' not in file]
+        # for full_path in all_files:
+        #     mitograph_dir = "/Users/austin/Desktop/MitoGraph"
+        #
+        #     im_dir = os.path.dirname(full_path)
+        #     im_name = os.path.basename(full_path)
+        #     im_dir += "/"
+        #
+        #     im, mitograph_input_path = get_mitograph_output_path(im_dir, im_name)
+        #
+        #     if os.path.exists(mitograph_input_path):
+        #         print(f'{mitograph_input_path} already exists, skipping')
+        #         continue
+        #
+        #     output_path = convert(im, mitograph_input_path)
+        #
+        #     # get metadata
+        #     ome_xml = tifffile.tiffcomment(full_path)
+        #     ome = ome_types.from_xml(ome_xml)
+        #     lateral_px_size = ome.images[0].pixels.physical_size_x
+        #     axial_px_size = ome.images[0].pixels.physical_size_z
+        #
+        #     try:
+        #         parallel_mitograph(output_path, lateral_px_size, axial_px_size, mitograph_dir)
+        #     except:
+        #         print(f"Failed on {full_path}")
+        #         continue
