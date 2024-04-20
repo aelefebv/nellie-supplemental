@@ -148,7 +148,7 @@ if __name__ == "__main__":
     import os
 
     top_dir = r"C:\Users\austin\GitHub\nellie-simulations\separation\separation"
-    output_dir = os.path.join(top_dir, 'mitograph')
+    output_dir = os.path.join(top_dir, 'frangi')
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 

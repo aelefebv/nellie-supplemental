@@ -67,10 +67,6 @@ def run(im_path):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    # all_files = os.listdir(time_series_dir)
-    # file_names = [file for file in all_files if file.endswith('.tif')]
-    # final_seg = None
-    # for file_num, tif_file in enumerate(file_names):
     output_name = os.path.join(output_dir, im_name)
     if os.path.exists(output_name):
         print(f'already exists, skipping')
@@ -82,7 +78,6 @@ def run(im_path):
     num_t = stack.shape[0]
     check_num_t = min(10, num_t)
 
-    # def run_frame(stack):
     stack = xp.asarray(stack)
     # convert 16-bit to 8-bit image as done in paper
     print(stack.dtype)
@@ -159,7 +154,23 @@ if __name__ == "__main__":
     # top_dir = r"C:\Users\austin\GitHub\nellie-simulations\separation\separation"
     # time_series_dir = r"C:\Users\austin\GitHub\nellie-simulations\separation\time_series"
 
-    top_dir = time_series_dir = r"/Users/austin/GitHub/nellie-simulations/motion/linear"
-    # time_series_dir = r"/Users/austin/GitHub/nellie-simulations/motion/angular"
-    full_temporal = True
-    run(top_dir, time_series_dir)
+    # top_dir = time_series_dir = r"/Users/austin/GitHub/nellie-simulations/motion/linear"
+    # # time_series_dir = r"/Users/austin/GitHub/nellie-simulations/motion/angular"
+    # full_temporal = True
+    # run(top_dir, time_series_dir)
+
+    top_dirs = [
+        "/Users/austin/GitHub/nellie-simulations/multi_grid/outputs",
+        "/Users/austin/GitHub/nellie-simulations/px_sizes/outputs",
+        "/Users/austin/GitHub/nellie-simulations/separation/outputs",
+    ]
+
+    for top_dir in top_dirs:
+        all_files = os.listdir(top_dir)
+        all_files = [os.path.join(top_dir, file) for file in all_files if
+                     not os.path.isdir(os.path.join(top_dir, file))]
+        all_files = [file for file in all_files if file.endswith('.tif')]
+        for file_num, tif_file in enumerate(all_files):
+            # for ch in range(1):
+            print(f'Processing file {file_num + 1} of {len(all_files)}')
+            final_seg, output_dir = run(tif_file)
