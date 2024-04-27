@@ -30,7 +30,7 @@ def run_mitograph(frame_dir, lateral_pixel_size, axial_pixel_size, mitograph_dir
                f"-path {frame_dir}/")
     print(command)
     try:
-        subprocess.run(command, shell=True, timeout=300, check=True)  # 300 seconds or 5 minutes
+        subprocess.run(command, shell=True, timeout=300, check=True)  # 7200 seconds or 2 hours
     except subprocess.TimeoutExpired:
         print("Command timed out!")
         return "timeout"
@@ -143,6 +143,9 @@ def parallel_process_files(top_dirs):
         dir_files = [os.path.join(top_dir, file) for file in dir_files if file.endswith('.tif')]
         all_files.extend(dir_files)
 
+    # for file in all_files:
+    #     process_file(file)
+    #
     with Pool(num_processes) as pool:
         results = [pool.apply_async(process_file, (file,)) for file in all_files]
         for result in results:
@@ -166,9 +169,9 @@ def parallel_process_files(top_dirs):
 
 if __name__ == "__main__":
     top_dirs = [
-        '/Users/austin/test_files/simulations/px_sizes/outputs',
+        # '/Users/austin/test_files/simulations/px_sizes/outputs',
+        # '/Users/austin/test_files/simulations/multi_grid/outputs',
         '/Users/austin/test_files/simulations/separation/outputs',
-        '/Users/austin/test_files/simulations/multi_grid/outputs',
     ]
     parallel_process_files(top_dirs)
     visualize = False
