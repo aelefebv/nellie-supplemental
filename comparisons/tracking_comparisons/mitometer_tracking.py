@@ -4,6 +4,8 @@ import ome_types
 import numpy as np
 from skimage import measure
 import pickle
+import pandas as pd
+from scipy.spatial import cKDTree
 
 from comparisons.segmentation_comparisons import mitometer
 
@@ -153,7 +155,7 @@ def track(num_frames, mask_im, im, dim_sizes, weights, vel_thresh_um, frame_thre
         confident_costs = assign_matrix[row_ind[confident_assignments], col_ind[confident_assignments]]
         running_confidence_costs.extend(confident_costs)
 
-    return tracks
+    return tracks, frame_mito
 
 
 def get_track_angles(tracks):
@@ -308,15 +310,245 @@ def clean_mask(mask_im, min_size):
     return final_mask
 
 
+def check_fission_volume(check_track_idx, all_tracks, std_range_fission, cv_perc_fission):
+    num_tracks = len(all_tracks)
+
+    pre_volume = np.ones((1, num_tracks)) * np.inf
+    post_volume = np.ones((1, num_tracks)) * np.inf
+    new_volume = np.ones((1, num_tracks)) * np.inf
+    pre_std = np.ones((1, num_tracks)) * np.inf
+    post_std = np.ones((1, num_tracks)) * np.inf
+    new_std = np.ones((1, num_tracks)) * np.inf
+
+    new_track = all_tracks[check_track_idx]
+    new_track_volume = np.nanmean([new_track['mitos'][frame_num].area for frame_num in range(len(new_track['frames']))])
+    new_track_std = np.nanstd([new_track['mitos'][frame_num].area for frame_num in range(len(new_track['frames']))])
+    for track_num in range(num_tracks):
+        if track_num == check_track_idx:
+            continue
+
+        other_track = all_tracks[track_num]
+        frame_max = new_track['frames'][0]
+        # ensure the other track has both frames before and during/after the new track
+        if (np.sum(np.array(other_track['frames']) < frame_max) == 0) or (np.sum(np.array(other_track['frames']) >= frame_max) == 0):
+            continue
+        # get all indices of the frame before the new track
+        frame_idxs_pre = np.where(np.array(other_track['frames']) < frame_max)[0]
+        frame_idxs_post = np.where(np.array(other_track['frames']) >= frame_max)[0]
+        prefission = [other_track['mitos'][frame_idx].area for frame_idx in frame_idxs_pre]
+        postfission = [other_track['mitos'][frame_idx].area for frame_idx in frame_idxs_post]
+
+        if len(prefission) < 2 or len(postfission) < 2:
+            continue
+
+        pre_volume[0, track_num] = np.nanmean(prefission)
+        post_volume[0, track_num] = np.nanmean(postfission)
+        new_volume[0, track_num] = new_track_volume
+
+        pre_std[0, track_num] = np.nanstd(prefission)
+        post_std[0, track_num] = np.nanstd(postfission)
+        new_std[0, track_num] = new_track_std
+
+    volume_diff = np.abs(pre_volume - (post_volume + new_volume))
+    std_total = np.sqrt(pre_std**2 + post_std**2 + new_std**2)
+
+    coeff_var_matrix_post = post_std / post_volume
+    coeff_var_matrix_pre = pre_std / pre_volume
+    coeff_var_matrix_new = new_std / new_volume
+
+    coeff_var_matrix = coeff_var_matrix_post * coeff_var_matrix_pre * coeff_var_matrix_new
+    # set nans to inf
+    coeff_var_matrix[np.isnan(coeff_var_matrix)] = np.inf
+
+    possible_fission_matrix = volume_diff < (std_range_fission * std_total)
+    fission_matrix = possible_fission_matrix * (coeff_var_matrix < cv_perc_fission)
+
+    fission_matrix[np.isnan(fission_matrix)] = False
+
+    return fission_matrix
+
+def check_fusion_volume(check_track_idx, all_tracks, std_range_fusion, cv_perc_fusion):
+    num_tracks = len(all_tracks)
+
+    pre_volume = np.ones((1, num_tracks)) * np.inf
+    post_volume = np.ones((1, num_tracks)) * np.inf
+    lost_volume = np.ones((1, num_tracks)) * np.inf
+    pre_std = np.ones((1, num_tracks)) * np.inf
+    post_std = np.ones((1, num_tracks)) * np.inf
+    lost_std = np.ones((1, num_tracks)) * np.inf
+
+    lost_track = all_tracks[check_track_idx]
+    lost_track_volume = np.nanmean([lost_track['mitos'][frame_num].area for frame_num in range(len(lost_track['frames']))])
+    lost_track_std = np.nanstd([lost_track['mitos'][frame_num].area for frame_num in range(len(lost_track['frames']))])
+    for track_num in range(num_tracks):
+        if track_num == check_track_idx:
+            continue
+
+        other_track = all_tracks[track_num]
+        frame_min = lost_track['frames'][-1]
+        # ensure the other track has both frames before and during/after the lost track
+        if (np.sum(np.array(other_track['frames']) < frame_min) == 0) or (np.sum(np.array(other_track['frames']) >= frame_min) == 0):
+            continue
+        # get all indices of the frame before the new track
+        frame_idxs_pre = np.where(np.array(other_track['frames']) < frame_min)[0]
+        frame_idxs_post = np.where(np.array(other_track['frames']) >= frame_min)[0]
+        prefusion = [other_track['mitos'][frame_idx].area for frame_idx in frame_idxs_pre]
+        postfusion = [other_track['mitos'][frame_idx].area for frame_idx in frame_idxs_post]
+
+        if len(prefusion) < 2 or len(postfusion) < 2:
+            continue
+
+        pre_volume[0, track_num] = np.nanmean(prefusion)
+        post_volume[0, track_num] = np.nanmean(postfusion)
+        lost_volume[0, track_num] = lost_track_volume
+
+        pre_std[0, track_num] = np.nanstd(prefusion)
+        post_std[0, track_num] = np.nanstd(postfusion)
+        lost_std[0, track_num] = lost_track_std
+
+    volume_diff = np.abs(post_volume - (pre_volume + lost_volume))
+    std_total = np.sqrt(pre_std**2 + post_std**2 + lost_std**2)
+
+    coeff_var_matrix_post = post_std / post_volume
+    coeff_var_matrix_pre = pre_std / pre_volume
+    coeff_var_matrix_lost = lost_std / lost_volume
+
+    coeff_var_matrix = coeff_var_matrix_post * coeff_var_matrix_pre * coeff_var_matrix_lost
+    # set nans to inf
+    coeff_var_matrix[np.isnan(coeff_var_matrix)] = np.inf
+
+    possible_fusion_matrix = volume_diff < (std_range_fusion * std_total)
+    fusion_matrix = possible_fusion_matrix * (coeff_var_matrix < cv_perc_fusion)
+
+    fusion_matrix[np.isnan(fusion_matrix)] = False
+
+    return fusion_matrix
+
+
+def count_fission_events(all_tracks, all_mito, dim_sizes, frame_thresh, dist_thresh_um):
+    num_tracks = len(all_tracks)
+    std_range_fission = np.inf
+    cv_perc_fission = np.inf
+
+    speed_thresh_um = dist_thresh_um * dim_sizes['T']
+
+    num_mito_first_frame = len(all_mito[0])
+
+    fission_track = np.zeros((num_tracks - num_mito_first_frame, num_tracks))
+    extrema_fission = np.ones_like(fission_track) * np.inf
+    fission_matrix = np.zeros_like(fission_track)
+
+    new_track_idx = [i for i in range(len(all_tracks)) if all_tracks[i]['frames'][0] > 0]
+
+    for new_track_curr_idx, track_num in enumerate(new_track_idx):
+        fission_track_first = np.zeros((frame_thresh, num_tracks))
+        extrema_fission_first = np.ones_like(fission_track_first) * np.nan
+
+        frame_difference = all_tracks[track_num]['frames'][0] - frame_thresh
+        frame_check = range(np.max([0, frame_difference]), all_tracks[track_num]['frames'][0])
+
+        tracks_to_check = [i for i in range(len(all_tracks)) if i != track_num]
+
+        track_coords = np.array(all_tracks[track_num]['mitos'][0].coords_scaled)
+        for frame_num in frame_check:
+            for check_track_idx in tracks_to_check:
+                check_track = all_tracks[check_track_idx]
+                if (len(check_track['frames']) <= 2) or (frame_num not in check_track['frames']):
+                    continue
+                check_coords = np.array(check_track['mitos'][check_track['frames'].index(frame_num)].coords_scaled)
+                # get closest distance between the two tracks
+                tree = cKDTree(check_coords)
+                dist, _ = tree.query(track_coords, k=1)
+                min_dist = np.min(dist)
+                if min_dist > speed_thresh_um:
+                    continue
+                extrema_fission_first[frame_num - frame_difference, check_track_idx] = min_dist
+                fission_track_first[frame_num - frame_difference, check_track_idx] = 1
+
+        fission_track[new_track_curr_idx, :] = np.sum(fission_track_first, axis=0)
+        extrema_fission[new_track_curr_idx, :] = np.nanmean(extrema_fission_first, axis=0)
+        # nans get converted to inf
+        extrema_fission[np.isnan(extrema_fission)] = np.inf
+        fission_matrix[new_track_curr_idx, :] = check_fission_volume(track_num, all_tracks, std_range_fission, cv_perc_fission)
+        mask_fission = fission_matrix * (fission_track > 0)
+        mask_fission[mask_fission==0] = np.inf
+
+        extrema_fission_thresholded = extrema_fission * mask_fission
+    # find the min value of the extrema_fission_thresholded for each new track
+    min_extrema_fission = np.min(extrema_fission_thresholded, axis=1)
+    num_events = np.sum(min_extrema_fission < np.inf)
+    return num_events
+
+def count_fusion_events(all_tracks, all_mito, dim_sizes, frame_thresh, dist_thresh_um, num_frames):
+    num_tracks = len(all_tracks)
+    std_range_fusion = np.inf
+    cv_perc_fusion = np.inf
+
+    speed_thresh_um = dist_thresh_um * dim_sizes['T']
+
+    lost_tracks = []
+    for track_num, track in enumerate(all_tracks):
+        if track['frames'][-1] < num_frames - 1:
+            lost_tracks.append(track_num)
+
+    fusion_track = np.zeros((len(lost_tracks), num_tracks))
+    extrema_fusion = np.ones_like(fusion_track) * np.inf
+    fusion_matrix = np.zeros_like(fusion_track)
+    extrema_fusion_thresholded = np.ones_like(fusion_track) * np.inf
+
+    lost_track_idx = [i for i in range(len(all_tracks)) if i in lost_tracks]
+
+    for lost_track_curr_idx, track_num in enumerate(lost_track_idx):
+        fusion_track_first = np.zeros((frame_thresh, num_tracks))
+        extrema_fusion_first = np.ones_like(fusion_track_first) * np.nan
+
+        frame_difference = all_tracks[track_num]['frames'][-1] + frame_thresh
+        frame_check = range(all_tracks[track_num]['frames'][-1], np.min([num_frames, frame_difference]))
+
+        tracks_to_check = [i for i in range(len(all_tracks)) if i != track_num]
+
+        track_coords = np.array(all_tracks[track_num]['mitos'][-1].coords_scaled)
+        for frame_idx, frame_num in enumerate(frame_check):
+            for check_track_idx in tracks_to_check:
+                check_track = all_tracks[check_track_idx]
+                if (len(check_track['frames']) <= 2) or (frame_num not in check_track['frames']):
+                    continue
+                check_coords = np.array(check_track['mitos'][check_track['frames'].index(frame_num)].coords_scaled)
+                # get closest distance between the two tracks
+                tree = cKDTree(check_coords)
+                dist, _ = tree.query(track_coords, k=1)
+                min_dist = np.min(dist)
+                if min_dist > speed_thresh_um:
+                    continue
+                extrema_fusion_first[frame_idx, check_track_idx] = min_dist
+                fusion_track_first[frame_idx, check_track_idx] = 1
+
+        fusion_track[lost_track_curr_idx, :] = np.sum(fusion_track_first, axis=0)
+        extrema_fusion[lost_track_curr_idx, :] = np.nanmean(extrema_fusion_first, axis=0)
+        # nans get converted to inf
+        extrema_fusion[np.isnan(extrema_fusion)] = np.inf
+        fusion_matrix[lost_track_curr_idx, :] = check_fusion_volume(track_num, all_tracks, std_range_fusion, cv_perc_fusion)
+        mask_fusion = fusion_matrix * (fusion_track > 0)
+        mask_fusion[mask_fusion==0] = np.inf
+
+        extrema_fusion_thresholded = extrema_fusion * mask_fusion
+    # find the min value of the extrema_fission_thresholded for each new track
+    min_extrema_fusion = np.min(extrema_fusion_thresholded, axis=1)
+    num_events = np.sum(min_extrema_fusion < np.inf)
+    return num_events
+
 if __name__ == '__main__':
-    distance_thresh_um = 1
+    distance_thresh_um = 3
     frame_thresh = 3
 
     top_dirs = [
+        # '/Users/austin/GitHub/nellie-simulations/motion/linear/outputs',
+        # '/Users/austin/GitHub/nellie-simulations/motion/angular/outputs',
         '/Users/austin/GitHub/nellie-simulations/motion/fission_fusion/outputs',
-        '/Users/austin/GitHub/nellie-simulations/motion/linear/outputs',
-        '/Users/austin/GitHub/nellie-simulations/motion/angular/outputs',
     ]
+
+    return_mito = True
+
     for top_dir in top_dirs:
         all_files = os.listdir(top_dir)
         all_files = [os.path.join(top_dir, file) for file in all_files if file.endswith('.tif')]
@@ -333,8 +565,8 @@ if __name__ == '__main__':
                 os.makedirs(output_dir)
 
             output_name = os.path.join(output_dir, im_name)
-            pkl_path = os.path.join(output_dir, f'{file_name}-final_tracks.pkl')
-            if os.path.exists(pkl_path):
+            csv_path = os.path.join(output_dir, f'{file_name}-final_tracks.csv')
+            if os.path.exists(csv_path):
                 continue
             if os.path.exists(output_dir):
                 mask_im = tifffile.imread(os.path.join(output_dir, im_name))
@@ -358,15 +590,28 @@ if __name__ == '__main__':
             weights = {'vol': 1, 'majax': 1, 'minax': 1, 'z_axis': 1, 'solidity': 1, 'surface_area': 1, 'intensity': 1}
             num_frames = im.shape[0]
 
-            tracks = track(num_frames, mask_im, im, dim_sizes, weights, vel_thresh_um, frame_thresh)
+            tracks, all_mito = track(num_frames, mask_im, im, dim_sizes, weights, vel_thresh_um, frame_thresh)
             if len(tracks) > 1:
                 final_tracks = close_gaps(tracks, vel_thresh_um, frame_thresh, num_frames)
             else:
                 final_tracks = tracks
+            track_info = []
+            for track_num, final_track in enumerate(final_tracks):
+                for mito in final_track['mitos']:
+                    info = {'track_num': track_num, 'frame': mito.frame, 'z': mito.centroid[0],
+                            'y': mito.centroid[1], 'x': mito.centroid[2]}
+                    track_info.append(info)
+            track_df = pd.DataFrame(track_info)
+            track_df.to_csv(csv_path, index=False)
 
+            dynamics_events_info = {'fission': count_fission_events(final_tracks, all_mito, dim_sizes, frame_thresh, distance_thresh_um),
+                                    'fusion': count_fusion_events(final_tracks, all_mito, dim_sizes, frame_thresh, distance_thresh_um, num_frames)}
+
+            dynamics_events_df = pd.DataFrame(dynamics_events_info, index=[0])
+            dynamics_events_df.to_csv(os.path.join(output_dir, f'{file_name}-dynamics_events.csv'), index=False)
             # save pickled final_tracks
-            with open(os.path.join(output_mask_dir, f'{file_name}-final_tracks.pkl'), 'wb') as f:
-                pickle.dump(final_tracks, f)
+            # with open(os.path.join(output_mask_dir, f'{file_name}-final_tracks.pkl'), 'wb') as f:
+            #     pickle.dump(final_tracks, f)
             # except:
             #     print(f'Failed on {file}')
 
