@@ -11,7 +11,6 @@ except ImportError:
     import scipy.ndimage as ndi
     device_type = 'cpu'
 
-import skimage
 
 def remove_background(stack):
     # as defined in paper
@@ -95,8 +94,6 @@ def run(im_path):
         intensity_quantile_80 = 0
     else:
         intensity_quantile_80 = xp.quantile(all_im_bg_removed_timepoints[all_im_bg_removed_timepoints > 0], 0.8)
-    # if not intensity_quantile_80:
-    print(f'{intensity_quantile_80=}')
     thresh_matrix = range(2, int(intensity_quantile_80))
     if intensity_quantile_80 <= 2:
         thresh_matrix = [2]
@@ -151,14 +148,6 @@ def run(im_path):
 
 
 if __name__ == "__main__":
-    # top_dir = r"C:\Users\austin\GitHub\nellie-simulations\separation\separation"
-    # time_series_dir = r"C:\Users\austin\GitHub\nellie-simulations\separation\time_series"
-
-    # top_dir = time_series_dir = r"/Users/austin/GitHub/nellie-simulations/motion/linear"
-    # # time_series_dir = r"/Users/austin/GitHub/nellie-simulations/motion/angular"
-    # full_temporal = True
-    # run(top_dir, time_series_dir)
-
     top_dirs = [
         "/Users/austin/GitHub/nellie-simulations/multi_grid/outputs",
         "/Users/austin/GitHub/nellie-simulations/px_sizes/outputs",
@@ -171,6 +160,5 @@ if __name__ == "__main__":
                      not os.path.isdir(os.path.join(top_dir, file))]
         all_files = [file for file in all_files if file.endswith('.tif')]
         for file_num, tif_file in enumerate(all_files):
-            # for ch in range(1):
             print(f'Processing file {file_num + 1} of {len(all_files)}')
             final_seg, output_dir = run(tif_file)
