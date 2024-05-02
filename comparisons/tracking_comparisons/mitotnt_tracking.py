@@ -6,7 +6,7 @@ from multiprocessing import Pool, cpu_count
 import pandas as pd
 import ome_types
 
-from mitotnt import generate_tracking_inputs, network_tracking
+# from mitotnt import generate_tracking_inputs, network_tracking
 
 
 def get_mitotnt_output_path(im_dir, im_name):
@@ -70,12 +70,13 @@ def run_mitotnt(im_dir, start_frame, end_frame, frame_interval, tracking_interva
 
 if __name__ == "__main__":
     # '/Users/austin/GitHub/nellie-simulations/motion/linear/multi_length-long_axis_False-std_512-t_0p5.ome.tif'
-    top_dirs = [
-        '/Users/austin/GitHub/nellie-simulations/motion/fission_fusion/outputs',
-        '/Users/austin/GitHub/nellie-simulations/motion/linear/outputs',
-        '/Users/austin/GitHub/nellie-simulations/motion/angular/outputs',
-    ]
-    visualize = False
+    # top_dirs = [
+    #     '/Users/austin/GitHub/nellie-simulations/motion/fission_fusion/outputs',
+    #     '/Users/austin/GitHub/nellie-simulations/motion/linear/outputs',
+    #     '/Users/austin/GitHub/nellie-simulations/motion/angular/outputs',
+    # ]
+    visualize = True
+    top_dirs = ["/Users/austin/GitHub/nellie-simulations/motion/for_vis"]
 
     viewer = None
 
@@ -94,34 +95,45 @@ if __name__ == "__main__":
             im_dir += "/"
             im, mitotnt_input_path = get_mitotnt_output_path(im_dir, im_name)
             # if the mitotnt_input_path already exists, let's skip it
-            if os.path.exists(mitotnt_input_path):
-                print(f"Skipping {mitotnt_input_path}")
-                continue
-            output_path = convert(im, mitotnt_input_path)
-            track_file = os.path.join(output_path, 'tracking_outputs', 'final_node_tracks.csv')
+            if not os.path.exists(mitotnt_input_path):
+                output_path = convert(im, mitotnt_input_path)
+                track_file = os.path.join(output_path, 'tracking_outputs', 'final_node_tracks.csv')
 
-            # get metadata
-            num_frames = len(im)
-            ome_xml = tifffile.tiffcomment(full_path)
-            ome = ome_types.from_xml(ome_xml)
-            lateral_px_size = ome.images[0].pixels.physical_size_x
-            axial_px_size = ome.images[0].pixels.physical_size_z
-            frame_interval = ome.images[0].pixels.time_increment
-            tracking_interval = 1
-            start_frame = 0
-            end_frame = num_frames - 1
+                # get metadata
+                num_frames = len(im)
+                ome_xml = tifffile.tiffcomment(full_path)
+                ome = ome_types.from_xml(ome_xml)
+                lateral_px_size = ome.images[0].pixels.physical_size_x
+                axial_px_size = ome.images[0].pixels.physical_size_z
+                frame_interval = ome.images[0].pixels.time_increment
+                tracking_interval = 1
+                start_frame = 0
+                end_frame = num_frames - 1
 
-            try:
-                parallel_mitograph(output_path, lateral_px_size, axial_px_size, mitograph_dir)
-                run_mitotnt(output_path, start_frame, end_frame, frame_interval, tracking_interval)
-            except:
-                print(f"Failed on {full_path}")
-                continue
+                try:
+                    parallel_mitograph(output_path, lateral_px_size, axial_px_size, mitograph_dir)
+                    run_mitotnt(output_path, start_frame, end_frame, frame_interval, tracking_interval)
+                except:
+                    print(f"Failed on {full_path}")
+                    continue
+            else:
+                print(f"Already analyzed{mitotnt_input_path}")
 
             if visualize:
+                output_path = os.path.join(im_dir, 'mitoTNT', im_name.split('.')[0])
                 import napari
                 if viewer is None:
                     viewer = napari.Viewer()
+                # get metadata
+                num_frames = len(im)
+                ome_xml = tifffile.tiffcomment(full_path)
+                ome = ome_types.from_xml(ome_xml)
+                lateral_px_size = ome.images[0].pixels.physical_size_x
+                axial_px_size = ome.images[0].pixels.physical_size_z
+                frame_interval = ome.images[0].pixels.time_increment
+                tracking_interval = 1
+                start_frame = 0
+                end_frame = num_frames - 1
                 track_file = os.path.join(output_path, 'tracking_outputs', 'final_node_tracks.csv')
                 df = pd.read_csv(track_file)
 
@@ -134,4 +146,4 @@ if __name__ == "__main__":
                 # for some reason, y is flipped in the mitotnt outputs... could be graph-like coords vs image coords
                 viewer.add_image(im[:, :, ::-1, ...], name='im', scale=(axial_px_size, lateral_px_size, lateral_px_size))
 
-                napari.run()
+                # napari.run()

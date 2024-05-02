@@ -437,6 +437,7 @@ def count_fission_events(all_tracks, all_mito, dim_sizes, frame_thresh, dist_thr
     fission_track = np.zeros((num_tracks - num_mito_first_frame, num_tracks))
     extrema_fission = np.ones_like(fission_track) * np.inf
     fission_matrix = np.zeros_like(fission_track)
+    extrema_fission_thresholded = np.ones_like(fission_track) * np.inf
 
     new_track_idx = [i for i in range(len(all_tracks)) if all_tracks[i]['frames'][0] > 0]
 
@@ -541,13 +542,17 @@ if __name__ == '__main__':
     distance_thresh_um = 3
     frame_thresh = 3
 
-    top_dirs = [
+    # top_dirs = [
         # '/Users/austin/GitHub/nellie-simulations/motion/linear/outputs',
         # '/Users/austin/GitHub/nellie-simulations/motion/angular/outputs',
-        '/Users/austin/GitHub/nellie-simulations/motion/fission_fusion/outputs',
-    ]
+        # '/Users/austin/GitHub/nellie-simulations/motion/fission_fusion/outputs',
+    # ]
 
-    return_mito = True
+    top_dirs = ["/Users/austin/GitHub/nellie-simulations/motion/for_vis"]
+    visualize = True
+    if visualize:
+        import napari
+        viewer = napari.Viewer()
 
     for top_dir in top_dirs:
         all_files = os.listdir(top_dir)
@@ -615,9 +620,12 @@ if __name__ == '__main__':
             # except:
             #     print(f'Failed on {file}')
 
-            # napari_tracks = []
-            # for track_num, track in enumerate(final_tracks):
-            #     # composed of [track_num, frame, z, y, x]
-            #     for mito in track['mitos']:
-            #         napari_tracks.append([track_num, mito.frame, mito.centroid[0] / dim_sizes['Z'],
-            #                             mito.centroid[1] / dim_sizes['Y'], mito.centroid[2] / dim_sizes['X']])
+            if visualize:
+                napari_tracks = []
+                for track_num, solo_track in enumerate(final_tracks):
+                    # composed of [track_num, frame, z, y, x]
+                    for mito in solo_track['mitos']:
+                        napari_tracks.append([track_num, mito.frame, mito.centroid[0] / dim_sizes['Z'],
+                                            mito.centroid[1] / dim_sizes['Y'], mito.centroid[2] / dim_sizes['X']])
+                viewer.add_image(im, name=file_name)
+                viewer.add_tracks(napari_tracks, name=file_name)
