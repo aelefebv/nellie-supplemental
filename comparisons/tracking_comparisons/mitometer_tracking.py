@@ -3,17 +3,11 @@ from tifffile import tifffile
 import ome_types
 import numpy as np
 from skimage import measure
-import pickle
 import pandas as pd
 from scipy.spatial import cKDTree
 
 from comparisons.segmentation_comparisons import mitometer
 
-# try:
-#     import cupy as xp
-#     import cupyx.scipy.ndimage as ndi
-#     device_type = 'cuda'
-# except ImportError:
 xp = np
 import scipy.ndimage as ndi
 device_type = 'cpu'
@@ -78,9 +72,6 @@ def track(num_frames, mask_im, im, dim_sizes, weights, vel_thresh_um, frame_thre
             mito.frame = frame
             if frame == 0:
                 tracks.append({'mitos': [mito], 'frames': [frame], 'perfect': [True]})
-            # else:
-            #     mito.surface_area = 0
-            #     mito.frame = frame
 
     running_confidence_costs = []
     for frame in range(1, num_frames):
@@ -150,7 +141,6 @@ def track(num_frames, mask_im, im, dim_sizes, weights, vel_thresh_um, frame_thre
                 tracks[j]['perfect'].append(confident)
             else:
                 tracks.append({'mitos': [frame_mito[frame][i]], 'frames': [frame], 'perfect': [False]})
-
 
         confident_costs = assign_matrix[row_ind[confident_assignments], col_ind[confident_assignments]]
         running_confidence_costs.extend(confident_costs)
@@ -538,18 +528,19 @@ def count_fusion_events(all_tracks, all_mito, dim_sizes, frame_thresh, dist_thre
     num_events = np.sum(min_extrema_fusion < np.inf)
     return num_events
 
+
 if __name__ == '__main__':
     distance_thresh_um = 3
     frame_thresh = 3
+    visualize = False
 
-    # top_dirs = [
-        # '/Users/austin/GitHub/nellie-simulations/motion/linear/outputs',
-        # '/Users/austin/GitHub/nellie-simulations/motion/angular/outputs',
-        # '/Users/austin/GitHub/nellie-simulations/motion/fission_fusion/outputs',
-    # ]
+    # top_dirs = ["/Users/austin/GitHub/nellie-simulations/motion/for_vis"]
+    top_dirs = [
+        '/Users/austin/GitHub/nellie-simulations/motion/linear/outputs',
+        '/Users/austin/GitHub/nellie-simulations/motion/angular/outputs',
+        '/Users/austin/GitHub/nellie-simulations/motion/fission_fusion/outputs',
+    ]
 
-    top_dirs = ["/Users/austin/GitHub/nellie-simulations/motion/for_vis"]
-    visualize = True
     if visualize:
         import napari
         viewer = napari.Viewer()
@@ -558,7 +549,6 @@ if __name__ == '__main__':
         all_files = os.listdir(top_dir)
         all_files = [os.path.join(top_dir, file) for file in all_files if file.endswith('.tif')]
         for file in all_files:
-            # try:
             im_path = os.path.join(top_dir, file)
             file_name = os.path.basename(file).split('.')[0]
 
@@ -614,11 +604,6 @@ if __name__ == '__main__':
 
             dynamics_events_df = pd.DataFrame(dynamics_events_info, index=[0])
             dynamics_events_df.to_csv(os.path.join(output_dir, f'{file_name}-dynamics_events.csv'), index=False)
-            # save pickled final_tracks
-            # with open(os.path.join(output_mask_dir, f'{file_name}-final_tracks.pkl'), 'wb') as f:
-            #     pickle.dump(final_tracks, f)
-            # except:
-            #     print(f'Failed on {file}')
 
             if visualize:
                 napari_tracks = []
