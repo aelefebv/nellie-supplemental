@@ -1,5 +1,6 @@
 import numpy as np
 import tifffile
+import os
 
 try:
     import cupy as xp
@@ -10,6 +11,7 @@ except ImportError:
     xp = np
     import scipy.ndimage as ndi
     device_type = 'cpu'
+
 
 def otsu_threshold(matrix, nbins=256):
     # gpu version of skimage.filters.threshold_otsu
@@ -80,31 +82,6 @@ def triangle_threshold(matrix, nbins=256):
 
 
 if __name__ == "__main__":
-    import os
-    #
-    # # top_dir = r"C:\Users\austin\GitHub\nellie-simulations\separation\separation"
-    # # top_dir = r"C:\Users\austin\GitHub\nellie-simulations\multi_grid\multigrid"
-    # top_dir = r"C:\Users\austin\GitHub\nellie-simulations\px_sizes\px_sizes"
-    # output_dir = os.path.join(top_dir, 'otsu')
-    # if not os.path.exists(output_dir):
-    #     os.makedirs(output_dir)
-    #
-    # all_files = os.listdir(top_dir)
-    # file_names = [file for file in all_files if file.endswith('.tif')]
-    # for file_num, tif_file in enumerate(file_names):
-    #     print(f'Processing file {file_num + 1} of {len(file_names)}')
-    #     output_name = os.path.join(output_dir, file_names[file_num])
-    #     if os.path.exists(output_name):
-    #         print(f'already exists, skipping')
-    #         continue
-    #     filepath = os.path.join(top_dir, file_names[file_num])
-    #     im = xp.asarray(tifffile.imread(filepath), dtype='float64')
-    #     threshold, _ = otsu_threshold(im)
-    #     final_seg = im > threshold
-    #     if device_type == 'cuda':
-    #         final_seg = final_seg.get()
-    #     tifffile.imwrite(os.path.join(output_dir, file_names[file_num]), final_seg)
-
     top_dirs = [
         "/Users/austin/GitHub/nellie-simulations/multi_grid/outputs",
         "/Users/austin/GitHub/nellie-simulations/px_sizes/outputs",
