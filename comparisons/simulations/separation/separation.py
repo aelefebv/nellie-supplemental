@@ -101,7 +101,7 @@ if __name__ == "__main__":
             length_vector_px = length_vector_um / px_size_um
 
             for thickness in thickness_vector_px:
-                if thickness > separation_px:
+                if thickness > separation_px*2 and thickness < separation_px*2 + 0.25:
                     continue
                 for length in length_vector_px:
                     new_im = np.zeros(image_shape, dtype=np.uint16)
