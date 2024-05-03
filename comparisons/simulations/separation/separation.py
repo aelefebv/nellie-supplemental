@@ -1,7 +1,7 @@
 import numpy as np
 import skimage
 
-from utils import add_noise, save_ome_tif
+from comparisons.simulations.utils import add_noise, save_ome_tif
 
 
 def create_skeleton_sub_volume(length=50, separation_px=0):
@@ -101,7 +101,8 @@ if __name__ == "__main__":
             length_vector_px = length_vector_um / px_size_um
 
             for thickness in thickness_vector_px:
-                if thickness > separation_px*2 and thickness < separation_px*2 + 0.25:
+                ratio = separation_px / thickness
+                if ratio < 2 or ratio > 2.2:
                     continue
                 for length in length_vector_px:
                     new_im = np.zeros(image_shape, dtype=np.uint16)

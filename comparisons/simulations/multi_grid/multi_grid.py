@@ -5,7 +5,7 @@ from scipy.ndimage import gaussian_filter
 from tifffile import tifffile
 import os
 
-from utils import save_ome_tif, add_noise
+from comparisons.simulations.utils import save_ome_tif, add_noise
 
 
 def create_skeleton_sub_volume(length=50, curvature_factor=5):
