@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch import cosine_similarity
 from torch_geometric.nn import MessagePassing, GATv2Conv
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
@@ -11,9 +10,6 @@ import numpy as np
 import pandas as pd
 import datetime
 import os
-
-from src.feature_extraction.graph_frame import GraphBuilder
-from src.im_info.im_info import ImInfo
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f'Using device: {device}')
@@ -156,7 +152,7 @@ def train_model(training, validation, savedir):
     best_epoch = 0
     early_stopping_counter = 0
     for epoch in range(int(num_epochs)):
-        total_loss = 0
+        total_train_loss = 0
         for n, data in enumerate(training):
             data = data.to(device)
             optimizer.zero_grad()
@@ -164,19 +160,20 @@ def train_model(training, validation, savedir):
             loss = F.mse_loss(reconstructed, data.x)
             loss.backward()
             optimizer.step()
-            total_loss += loss.item()
-        avg_train_loss = total_loss / len(training)
+            total_train_loss += loss.item()
+        avg_train_loss = total_train_loss / len(training)
         train_loss_values.append(avg_train_loss)
         print(f'Epoch {epoch + 1}, Avg Loss: {avg_train_loss}')
 
         # also check validation loss
+        total_val_loss = 0
         with torch.no_grad():
             for n, data in enumerate(validation):
                 data = data.to(device)
                 reconstructed = autoencoder(data.x, data.edge_index)
                 loss = F.mse_loss(reconstructed, data.x)
-                total_loss += loss.item()
-            avg_val_loss = total_loss / len(validation)
+                total_val_loss += loss.item()
+            avg_val_loss = total_val_loss / len(validation)
             val_loss_values.append(avg_val_loss)
             print(f'Epoch {epoch + 1}, Avg Validation Loss: {avg_val_loss}')
 
@@ -208,6 +205,10 @@ def train_model(training, validation, savedir):
             # save the plot
             plt.savefig(os.path.join(savedir, f"{current_dt_str}-loss_plot.png"))
             plt.close()
+
+        # save loss vals to csv
+        loss_df = pd.DataFrame({'train_loss': train_loss_values, 'val_loss': val_loss_values})
+        loss_df.to_csv(os.path.join(savedir, f"{current_dt_str}-loss_vals.csv"), index=False)
 
 def test_and_train():
     def create_dataset(num_nodes, num_features, feature_range=(0, 1)):
@@ -350,11 +351,15 @@ def run_model(model_path, dataset, reconstruction=False):
 
 def import_data(im_path, ch=0):
     # im_path = r"D:\test_files\nelly_tests\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome.tif"
-    im_info = ImInfo(im_path, ch=ch)
+    # im_info = ImInfo(im_path, ch=ch)
     #load graph_features as pd.DataFrame
-    graph_features = pd.read_csv(im_info.pipeline_paths['graph_features'])
+    im_dir = os.path.dirname(im_path)
+    im_name_no_ext = os.path.splitext(os.path.basename(im_path))[0]
+    graph_path = os.path.join(im_dir, 'nellie_output', im_name_no_ext + '-ch0-graph_features.csv')
+    graph_features = pd.read_csv(graph_path)
     # load graph_edges as pd.DataFrame
-    graph_edges = pd.read_csv(im_info.pipeline_paths['graph_edges'])
+    edge_path = os.path.join(im_dir, 'nellie_output', im_name_no_ext + '-ch0-graph_edges.csv')
+    graph_edges = pd.read_csv(edge_path)
     # group by column 't'
     graph_features_grouped = graph_features.groupby('t')
     graph_edges_grouped = graph_edges.groupby('t')
