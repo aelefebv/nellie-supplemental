@@ -2,14 +2,14 @@ import numpy as np
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
 
-from src.case_studies.ionomycin_embeddings.multimesh_GNN import import_data, normalize_features, train_model
+from case_studies.GNN.model import import_data, normalize_features, train_model
 
 dataset_paths = [
     r"D:\test_files\nelly_iono\full_2\deskewed-pre_1.ome.tif",
     r"D:\test_files\nelly_iono\full_2\deskewed-full_post_1.ome.tif",
     r"D:\test_files\nelly_iono\full_2\deskewed-pre_2.ome.tif",
     r"D:\test_files\nelly_iono\full_2\deskewed-full_post_2.ome.tif",
-    r"D:\test_files\nelly_iono\full_pre\deskewed-full_pre.ome.tif"
+    r"D:\test_files\nelly_iono\full_2\deskewed-full_pre.ome.tif"
 ]
 
 datasets = []

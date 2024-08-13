@@ -48,6 +48,12 @@ class ValsSorted:
         self.otsu_f1 = otsu_stats['f1'][key]
         self.triangle_f1 = triangle_stats['f1'][key]
 
+        self.nellie_f1 = nellie_stats['iou'][key]
+        self.mitograph_f1 = mitograph_stats['iou'][key]
+        self.mitometer_f1 = mitometer_stats['iou'][key]
+        self.otsu_f1 = otsu_stats['iou'][key]
+        self.triangle_f1 = triangle_stats['iou'][key]
+
 
 all_vals = []
 for key in keys:
