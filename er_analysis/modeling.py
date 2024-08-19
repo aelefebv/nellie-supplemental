@@ -124,6 +124,24 @@ for dataset in datasets:
     dataset_new = dataset.copy()
     if 'dataset' in dataset_new.columns:
         dataset_new = dataset_new.drop(columns='dataset')
+    # drop nans
+    dataset_new = dataset_new.dropna()
+
+    # # check if normally distributed
+    # for col in dataset_new.columns:
+    #     test_data = dataset_new[col]
+    #     # shift everything to be positive
+    #     if test_data.min() < 0:
+    #         log_test_data = test_data - test_data.min()
+    #     else:
+    #         log_test_data = test_data
+    #     log_test_data = np.log(log_test_data)
+    #     w, _ = stats.shapiro(test_data)
+    #     w_log, _ = stats.shapiro(log_test_data)
+    #
+    #     if w_log > w:
+    #         dataset_new[col] = log_test_data
+
     dataset_normalized = (dataset_new - dataset_new.mean()) / dataset_new.std()
     pca_results = pca.transform(dataset_normalized)
     results.append(pca_results)
@@ -136,5 +154,12 @@ results_median = [np.median(result, axis=0) for result in results]
 plt.figure()
 for i, result in enumerate(results_median):
     plt.scatter(result[0], result[1], label=labels[i])
+plt.legend()
+plt.show()
+
+# plot all the points
+plt.figure()
+for i, result in enumerate(results):
+    plt.scatter(result[:, 0], result[:, 1], label=labels[i], alpha=0.01, s=1)
 plt.legend()
 plt.show()
