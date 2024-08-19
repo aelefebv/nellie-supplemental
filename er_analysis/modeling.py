@@ -104,8 +104,37 @@ def make_rf_model(dataset_0, dataset_1):
     plt.legend(loc='lower right')
     plt.show()
 
-
 make_rf_model(t_dfs_1_single, t_dfs_2_single)
 make_rf_model(t_dfs_1[0], t_dfs_1[1])
 make_rf_model(t_dfs_2[0], t_dfs_2[1])
 
+# pca of features
+from sklearn.decomposition import PCA
+
+pca = PCA(n_components=2)
+X = combined_dfs.copy()
+# X = X.drop(columns='dataset')
+X_normalized = (X - X.mean()) / X.std()
+pca.fit(X_normalized)
+datasets = [t_dfs_1[0], t_dfs_1[1], t_dfs_1[2], t_dfs_2[0], t_dfs_2[1], t_dfs_2[2]]
+labels = ['a_t1', 'a_t2', 'a_t3', 'b_t1', 'b_t2', 'b_t3']
+
+results = []
+for dataset in datasets:
+    dataset_new = dataset.copy()
+    if 'dataset' in dataset_new.columns:
+        dataset_new = dataset_new.drop(columns='dataset')
+    dataset_normalized = (dataset_new - dataset_new.mean()) / dataset_new.std()
+    pca_results = pca.transform(dataset_normalized)
+    results.append(pca_results)
+
+# get average of each dataset
+results_mean = [np.mean(result, axis=0) for result in results]
+results_median = [np.median(result, axis=0) for result in results]
+
+# plot the means with their labels
+plt.figure()
+for i, result in enumerate(results_median):
+    plt.scatter(result[0], result[1], label=labels[i])
+plt.legend()
+plt.show()
