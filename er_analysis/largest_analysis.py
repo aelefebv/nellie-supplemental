@@ -6,6 +6,8 @@ import pandas as pd
 import datetime
 import networkx as nx
 from scipy import ndimage as ndi
+from skimage import measure
+from skimage import morphology
 
 from tifffile import tifffile
 
@@ -110,8 +112,6 @@ class GraphStats:
     num_components: int
     normalized_cyclomatic_number: float
     avg_degree: float
-    clustering_coeff: float
-    avg_shortest_path: float
     max_betweenness_centrality: float
     max_degree_centrality: float
 
@@ -121,6 +121,9 @@ for frame, locs in enumerate(largest_organelle_coords_1):
     new_label_im_1[frame][tuple(locs.T)] = 1
 for frame, locs in enumerate(largest_organelle_coords_2):
     new_label_im_2[frame][tuple(locs.T)] = 1
+
+# import napari
+# viewer = napari.Viewer()
 
 all_graph_stats = []
 # for both sets of largest organelles
@@ -142,6 +145,13 @@ for new_label_im, pixel_im, file_prefix in zip([new_label_im_1, new_label_im_2],
         junction_label, _ = ndi.label(frame, structure=np.ones((3, 3)))
         junction_labels.append(junction_label)
     junction_labels = np.array(junction_labels)
+    junction_regions = measure.regionprops(junction_labels[0])
+    junction_centroids = np.array([jr.centroid for jr in junction_regions])
+
+    # expanded_branch_mask = ndi.binary_dilation(branch_mask[0], iterations=1)
+    # viewer.add_image((pixel_im>0) & new_label_im, name='expanded_branch_mask')
+    # viewer.add_points(junction_centroids, name='junction_centroids', face_color='red', size=5)
+    # viewer.add_labels(pixel_im_1)
 
     for frame in range(len(branch_labels)):
     # for frame in range(1):
@@ -153,11 +163,16 @@ for new_label_im, pixel_im, file_prefix in zip([new_label_im_1, new_label_im_2],
         cyclomatic_number = num_edges - num_nodes + num_components
         max_cyclomatic = (num_nodes * (num_nodes - 1) / 2) - num_nodes + 1
         normalized_cyclomatic_number = cyclomatic_number / max_cyclomatic if max_cyclomatic > 0 else 0
-        avg_degree = sum(dict(er_graph.degree()).values()) / num_nodes
-        clustering_coeff = nx.average_clustering(er_graph)
-        avg_shortest_path = nx.average_shortest_path_length(er_graph)
+        degree = dict(er_graph.degree())
+        avg_degree = sum(degree.values()) / num_nodes
         degree_centrality = nx.degree_centrality(er_graph)
         betweenness_centrality = nx.betweenness_centrality(er_graph)
+        # # color points based on degree centrality
+        # colors = np.array([degree[j] for j in er_graph.nodes()])
+        # # normalize between 0 and 1
+        # colors = (colors - colors.min()) / (colors.max() - colors.min())# * 255
+        # colormap = plt.cm.turbo
+        # viewer.add_points(junction_centroids, name='junction_centroids', face_color=colormap(colors), size=8)
         max_betweenness_centrality = max(betweenness_centrality.values())
         max_degree_centrality = max(degree_centrality.values())
 
@@ -165,7 +180,6 @@ for new_label_im, pixel_im, file_prefix in zip([new_label_im_1, new_label_im_2],
             filename=file_prefix, frame=frame,
             num_edges=num_edges, num_nodes=num_nodes, num_components=num_components,
             normalized_cyclomatic_number=normalized_cyclomatic_number, avg_degree=avg_degree,
-            clustering_coeff=clustering_coeff, avg_shortest_path=avg_shortest_path,
             max_betweenness_centrality=max_betweenness_centrality, max_degree_centrality=max_degree_centrality
             # max_betweenness_centrality=0, max_degree_centrality=0
         )
