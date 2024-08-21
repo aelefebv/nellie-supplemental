@@ -63,50 +63,75 @@ t_dfs_1_single = t_dfs_1[0]
 t_dfs_2_single = t_dfs_2[0]
 
 # train a random forest classifier to predict which dataset the data came from
-def make_rf_model(dataset_0, dataset_1):
+def make_rf_model(dataset_0, dataset_1=None, save_name='', visualize=False):
+    if dataset_1 is None:
+        # make dataset_1 the same as dataset_0 but frames shifted by 1
+        dataset_1 = dataset_0[1:] + [dataset_0[0]]
 
-    # add a column to each df that is the dataset
-    dataset_0['dataset'] = 0
-    dataset_1['dataset'] = 1
-    combined_dfs = pd.concat([dataset_0, dataset_1], axis=0)
+    fprs = []
+    tprs = []
+    aucs = []
+    for frame in range(len(dataset_0)):
+        dataset_0_frame = dataset_0[frame]
+        dataset_1_frame = dataset_1[frame]
+        # add a column to each df that is the dataset
+        dataset_0_frame['dataset'] = 0
+        dataset_1_frame['dataset'] = 1
+        combined_dfs = pd.concat([dataset_0_frame, dataset_1_frame], axis=0)
 
-    X = combined_dfs.drop(columns='dataset')
-    y = combined_dfs['dataset']
+        X = combined_dfs.drop(columns='dataset')
+        y = combined_dfs['dataset']
 
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-    clf = RandomForestClassifier(n_estimators=100, random_state=42)
-    clf.fit(X_train, y_train)
+        clf = RandomForestClassifier(n_estimators=100, random_state=42)
+        clf.fit(X_train, y_train)
 
-    y_pred = clf.predict(X_test)
+        y_pred = clf.predict(X_test)
 
-    accuracy = accuracy_score(y_test, y_pred)
+        accuracy = accuracy_score(y_test, y_pred)
 
-    print(f'Accuracy: {accuracy}')
+        print(f'Accuracy: {accuracy}')
 
-    # best features
-    feature_importances = clf.feature_importances_
-    feature_importances = pd.DataFrame({'feature': X.columns, 'importance': feature_importances})
-    feature_importances = feature_importances.sort_values('importance', ascending=False)
-    print(feature_importances)
+        # best features
+        feature_importances = clf.feature_importances_
+        feature_importances = pd.DataFrame({'feature': X.columns, 'importance': feature_importances})
+        feature_importances = feature_importances.sort_values('importance', ascending=False)
+        print(feature_importances)
 
-    # plot roc
-    y_pred_proba = clf.predict_proba(X_test)[:, 1]
-    fpr, tpr, _ = roc_curve(y_test, y_pred_proba)
-    roc_auc = auc(fpr, tpr)
+        # plot roc
+        y_pred_proba = clf.predict_proba(X_test)[:, 1]
+        fpr, tpr, _ = roc_curve(y_test, y_pred_proba)
+        roc_auc = auc(fpr, tpr)
 
-    plt.figure()
-    plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC curve (area = {roc_auc:.2f})')
-    plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
-    plt.xlabel('False Positive Rate')
-    plt.ylabel('True Positive Rate')
-    plt.title('Receiver Operating Characteristic')
-    plt.legend(loc='lower right')
-    plt.show()
+        fprs.append(fpr)
+        tprs.append(tpr)
+        aucs.append(roc_auc)
 
-make_rf_model(t_dfs_1_single, t_dfs_2_single)
-make_rf_model(t_dfs_1[0], t_dfs_1[1])
-make_rf_model(t_dfs_2[0], t_dfs_2[1])
+        if visualize:
+            plt.figure()
+            plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC curve (area = {roc_auc:.2f})')
+            plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+            plt.xlabel('False Positive Rate')
+            plt.ylabel('True Positive Rate')
+            plt.title('Receiver Operating Characteristic')
+            plt.legend(loc='lower right')
+            plt.show()
+    # save fpr, tpr in one csv
+    fpr_tpr_df = pd.DataFrame()
+    for i, (fpr, tpr) in enumerate(zip(fprs[0], tprs[0])):
+        fpr_tpr_df.loc[i, 'fpr'] = fpr
+        fpr_tpr_df.loc[i, 'tpr'] = tpr
+
+    fpr_tpr_df.to_csv(f'{dt}-{save_name}_fpr_tpr.csv')
+
+    # save aucs
+    aucs_df = pd.DataFrame(aucs, columns=['auc'])
+    aucs_df.to_csv(os.path.join(file_dir, f'{dt}-{save_name}_aucs.csv'))
+
+make_rf_model(t_dfs_1, t_dfs_2, save_name='inter')
+make_rf_model(t_dfs_1, save_name='intra1')
+make_rf_model(t_dfs_2, save_name='intra2')
 
 # pca of features
 from sklearn.decomposition import PCA

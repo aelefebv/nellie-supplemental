@@ -127,3 +127,18 @@ top_features = sorted(zip(feature_names, feature_factors[:, 0]), key=lambda x: a
 for feature, weight in top_features:
     print(f"{feature}: {weight}")
 
+# save feature names
+feature_names_df = pd.DataFrame(feature_names)
+feature_names_df.to_csv(os.path.join(file_dir, f'{dt}-feature_names.csv'), index=False)
+
+# save component 1 feature weights
+component_1_feature_weights = pd.DataFrame(feature_factors[:, 0], index=feature_names, columns=['weight'])
+component_1_feature_weights.to_csv(os.path.join(file_dir, f'{dt}-component_1_feature_weights.csv'))
+
+# save component 1 cell line weights
+component_1_cell_line_weights = pd.DataFrame(cell_line_factors[:, 0], index=['hFB12', 'U2OS'], columns=['weight'])
+component_1_cell_line_weights.to_csv(os.path.join(file_dir, f'{dt}-component_1_cell_line_weights.csv'))
+
+# save component 1 timepoint weights
+component_1_timepoint_weights = pd.DataFrame(timepoint_factors[:, 0], index=['1', '2', '3'], columns=['weight'])
+component_1_timepoint_weights.to_csv(os.path.join(file_dir, f'{dt}-component_1_timepoint_weights.csv'))
