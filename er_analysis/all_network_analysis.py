@@ -120,6 +120,30 @@ cyclomatic_number = num_edges - num_nodes + num_components
 max_cyclomatic = (num_nodes * (num_nodes - 1) / 2) - num_nodes + 1
 normalized_cyclomatic_number = cyclomatic_number / max_cyclomatic if max_cyclomatic > 0 else 0
 degree = dict(er_graph.degree())
+# bargraph of degree distribution:
+import matplotlib.pyplot as plt
+plt.hist(list(degree.values()))
+plt.show()
+
+# save csv of degree distribution
+degree_df = pd.DataFrame(degree.items(), columns=['node', 'degree'])
+degree_df.to_csv(os.path.join(file_dir, f'{dt}-degree_distribution.csv'))
+
+# get percent of nodes over 3
+num_nodes_over_3 = sum([1 for d in degree.values() if d > 3])
+percent_nodes_over_3 = num_nodes_over_3 / num_nodes
+
+# for each unique degree value, count the number of nodes with that degree
+degree_counts = {}
+for d in degree.values():
+    if d not in degree_counts:
+        degree_counts[d] = 0
+    degree_counts[d] += 1
+
+# save
+degree_counts_df = pd.DataFrame(degree_counts.items(), columns=['degree', 'count'])
+degree_counts_df.to_csv(os.path.join(file_dir, f'{dt}-degree_counts.csv'))
+
 avg_degree = sum(degree.values()) / num_nodes
 degree_centrality = nx.degree_centrality(er_graph)
 betweenness_centrality = nx.betweenness_centrality(er_graph)
