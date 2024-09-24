@@ -5,20 +5,21 @@ import matplotlib.pyplot as plt
 
 
 file_prefix = 'hFB12_ER_3_MMStack_Default.ome-TCYX-T1p0_Y0p0655_X0p0655-ch1-t0_to_5'
-file_dir = r'D:\test_files\nellie_revision_stuff\nellie_output'
+file_dir = '/Users/austin/test_files/er_stuff'
 
-image_features = os.path.join(file_dir, f'{file_prefix}-features_image.csv')
-image_df = pd.read_csv(image_features)
-unique_t = image_df['t'].unique()
-# only keep the rows with t[1:-1] in unique_t (avoid first and last frame since they are missing some stats)
-image_df = image_df[image_df['t'].isin(unique_t[1:-1])]
+# image_features = os.path.join(file_dir, f'{file_prefix}-features_image.csv')
+# image_df = pd.read_csv(image_features)
+# unique_t = image_df['t'].unique()
+# # only keep the rows with t[1:-1] in unique_t (avoid first and last frame since they are missing some stats)
+# image_df = image_df[image_df['t'].isin(unique_t[1:-1])]
 
-organelle_features = os.path.join(file_dir, f'{file_prefix}-features_organelles.csv')
-organelle_df_og = pd.read_csv(organelle_features)
-organelle_df = organelle_df_og[organelle_df_og['t'].isin(unique_t[1:-1])]
+# organelle_features = os.path.join(file_dir, f'{file_prefix}-features_organelles.csv')
+# organelle_df_og = pd.read_csv(organelle_features)
+# organelle_df = organelle_df_og[organelle_df_og['t'].isin(unique_t[1:-1])]
 
 branch_features = os.path.join(file_dir, f'{file_prefix}-features_branches.csv')
 branch_df_og = pd.read_csv(branch_features)
+unique_t = branch_df_og['t'].unique()
 branch_df = branch_df_og[branch_df_og['t'].isin(unique_t[1:-1])]
 
 node_features = os.path.join(file_dir, f'{file_prefix}-features_nodes.csv')
