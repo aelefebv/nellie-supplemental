@@ -43,7 +43,7 @@ def normalize_image(image):
     return image
 
 
-class MitochondriaDataset(Dataset):
+class OrganelleDataset(Dataset):
     def __init__(self, image_paths, mask_paths, transforms=None):
         self.image_paths = image_paths
         self.mask_paths = mask_paths
@@ -80,7 +80,17 @@ model = SwinUNETR(
 ).to(device)
 
 
-def train_model(image_dir, mask_dir, model_name):
+def train_model(image_dir):
+    # image_dir = r'D:\test_files\aics_dataset\combo'
+    mask_dir = rf'{image_dir}\nellie_output\nellie_necessities'
+    organelle = os.path.basename(image_dir)
+    print(f"Training model for {organelle}")
+    model_save_dir = r'D:\test_files\nellie_revision_stuff'
+    if not os.path.exists(model_save_dir):
+        os.makedirs(model_save_dir)
+    model_name = os.path.join(model_save_dir, f"{organelle}-model_{dt}.pth")
+    csv_filename = os.path.join(model_save_dir, f"{organelle}-training_metrics_{dt}.csv")
+
     # Get lists of all image and mask file paths
     image_paths = sorted(
         [os.path.join(image_dir, fname) for fname in os.listdir(image_dir) if fname.endswith('.ome.tif')]
@@ -127,8 +137,8 @@ def train_model(image_dir, mask_dir, model_name):
     ])
 
     # Create datasets
-    train_dataset = MitochondriaDataset(train_image_paths, train_mask_paths, transforms=train_transforms)
-    val_dataset = MitochondriaDataset(val_image_paths, val_mask_paths, transforms=val_transforms)
+    train_dataset = OrganelleDataset(train_image_paths, train_mask_paths, transforms=train_transforms)
+    val_dataset = OrganelleDataset(val_image_paths, val_mask_paths, transforms=val_transforms)
 
     # Create data loaders
     train_loader = DataLoader(train_dataset, batch_size=1, shuffle=True, num_workers=4)
@@ -146,8 +156,6 @@ def train_model(image_dir, mask_dir, model_name):
     best_metric_epoch = -1
     epoch_loss_values = []
     metric_values = []
-
-    csv_filename = f"training_metrics_{dt}.csv"
 
     # Initialize lists to store metrics
     training_losses = []
@@ -296,13 +304,16 @@ def run_all_inferences(raw_im_list, model_list):
 
 
 if __name__ == "__main__":
-    train = False
+    train = True
     if train:
-        image_dir = r'D:\test_files\aics_dataset\combo'
-        mask_dir = rf'{image_dir}\nellie_output\nellie_necessities'
-        organelle = os.path.basename(image_dir)
-        model_name = f"{organelle}_model_{dt}.pth"
-        train_model(image_dir, mask_dir, model_name)
+        image_dir_top_dir = r'D:\test_files\aics_dataset'
+        image_dirs = [os.path.join(image_dir_top_dir, f) for f in os.listdir(image_dir_top_dir) if os.path.isdir(os.path.join(image_dir_top_dir, f))]
+        for image_dir in image_dirs:
+            try:
+                train_model(image_dir)
+            except Exception as e:
+                print(f"Error training model for {image_dir}: {e}")
+                continue
     else:
         # raw_im_path = r"D:\test_files\aics_dataset\mito\3500000961_100X_20170609_2-Scene-09-P30-E07_mito.ome.tif"
         # model_path = r'C:\Users\austin\GitHub\nellie-supplemental\dl_examples\SWIN_3d\mito_model_20240924_211411.pth'
