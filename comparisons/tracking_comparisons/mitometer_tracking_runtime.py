@@ -12,7 +12,7 @@ xp = np
 import scipy.ndimage as ndi
 device_type = 'cpu'
 import os
-
+import time
 
 def get_delta_matrix(tracks, mitos, attribute):
     num_mito = len(mitos)
@@ -49,9 +49,9 @@ def track(num_frames, mask_im, im, dim_sizes, weights, vel_thresh_um, frame_thre
     frame_mito = {}
     for frame in range(num_frames):
         label_im, num_labels = ndi.label(mask_im[frame], structure=np.ones((3, 3, 3)))
-        if num_labels > 100:
-            print(f'Frame {frame} has {num_labels} mitochondria. Skipping.')
-            return []
+        # if num_labels > 100:
+        #     print(f'Frame {frame} has {num_labels} mitochondria. Skipping.')
+        #     return []
         frame_regions = measure.regionprops(label_im, intensity_image=im[frame],
                                                 spacing=(dim_sizes['Z'], dim_sizes['Y'], dim_sizes['X']))
         # remove any mito with only 1 voxel in any dimension
@@ -534,83 +534,59 @@ if __name__ == '__main__':
     frame_thresh = 3
     visualize = False
 
-    # top_dirs = ["/Users/austin/GitHub/nellie-simulations/motion/for_vis"]
-    top_dirs = [
-        '/Users/austin/GitHub/nellie-simulations/motion/linear/outputs',
-        '/Users/austin/GitHub/nellie-simulations/motion/angular/outputs',
-        '/Users/austin/GitHub/nellie-simulations/motion/fission_fusion/outputs',
-    ]
+    top_dir = '/Users/austin/test_files/timing_masks'
+    all_files = os.listdir(top_dir)
+    all_files.sort()
+    all_files = [os.path.join(top_dir, file) for file in all_files if file.endswith('.tif')]
 
-    if visualize:
-        import napari
-        viewer = napari.Viewer()
+    raw_file_dir = '/Users/austin/test_files/time_stuff'
+    raw_files = os.listdir(raw_file_dir)
+    raw_files.sort()
+    raw_files = [os.path.join(raw_file_dir, file) for file in raw_files if file.endswith('.tif')]
 
-    for top_dir in top_dirs:
-        all_files = os.listdir(top_dir)
-        all_files = [os.path.join(top_dir, file) for file in all_files if file.endswith('.tif')]
-        for file in all_files:
-            im_path = os.path.join(top_dir, file)
-            file_name = os.path.basename(file).split('.')[0]
+    matched_files = list(zip(all_files, raw_files))
 
-            top_dir = os.path.dirname(im_path)
-            im_name = os.path.basename(im_path)
+    for mask_file, raw_file in matched_files[6:]:
+        im_name = os.path.basename(raw_file)
+        output_dir = os.path.join(top_dir, 'mitometer')
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
 
-            output_dir = os.path.join(top_dir, 'mitometer')
-            if not os.path.exists(output_dir):
-                os.makedirs(output_dir)
+        output_name = os.path.join(output_dir, im_name)
+        csv_path = os.path.join(output_dir, f'{im_name}-final_tracks.csv')
+        mask_im = tifffile.imread(mask_file) > 0
 
-            output_name = os.path.join(output_dir, im_name)
-            csv_path = os.path.join(output_dir, f'{file_name}-final_tracks.csv')
-            if os.path.exists(csv_path):
-                continue
-            if os.path.exists(output_dir):
-                mask_im = tifffile.imread(os.path.join(output_dir, im_name))
-                output_mask_dir = output_dir
-            else:
-                mask_im, output_mask_dir = mitometer.run(im_path)
+        print(f'Running on {raw_file}')
+        start_time = time.time()
+        mask_im = clean_mask(mask_im, 4)
 
-            print(f'Running on {file}')
-            mask_im = mask_im > 0
-            mask_im = clean_mask(mask_im, 4)
+        raw_im = tifffile.imread(os.path.join(top_dir, mask_file))
 
-            im = tifffile.imread(os.path.join(top_dir, file))
-            ome_xml = tifffile.tiffcomment(im_path)
-            ome = ome_types.from_xml(ome_xml)
+        dim_sizes = {'X': 0.0655, 'Y': 0.0655,
+                     'Z': 0.25, 'T': 4.536}
 
-            dim_sizes = {'X': ome.images[0].pixels.physical_size_x, 'Y': ome.images[0].pixels.physical_size_y,
-                         'Z': ome.images[0].pixels.physical_size_z, 'T': ome.images[0].pixels.time_increment}
+        vel_thresh_um = distance_thresh_um * dim_sizes['T']
 
-            vel_thresh_um = distance_thresh_um * dim_sizes['T']
+        weights = {'vol': 1, 'majax': 1, 'minax': 1, 'z_axis': 1, 'solidity': 1, 'surface_area': 1, 'intensity': 1}
+        num_frames = raw_im.shape[0]
 
-            weights = {'vol': 1, 'majax': 1, 'minax': 1, 'z_axis': 1, 'solidity': 1, 'surface_area': 1, 'intensity': 1}
-            num_frames = im.shape[0]
+        tracks, all_mito = track(num_frames, mask_im, raw_im, dim_sizes, weights, vel_thresh_um, frame_thresh)
+        if len(tracks) > 1:
+            final_tracks = close_gaps(tracks, vel_thresh_um, frame_thresh, num_frames)
+        else:
+            final_tracks = tracks
+        track_info = []
+        for track_num, final_track in enumerate(final_tracks):
+            for mito in final_track['mitos']:
+                info = {'track_num': track_num, 'frame': mito.frame, 'z': mito.centroid[0],
+                        'y': mito.centroid[1], 'x': mito.centroid[2]}
+                track_info.append(info)
+        track_df = pd.DataFrame(track_info)
+        track_df.to_csv(csv_path, index=False)
 
-            tracks, all_mito = track(num_frames, mask_im, im, dim_sizes, weights, vel_thresh_um, frame_thresh)
-            if len(tracks) > 1:
-                final_tracks = close_gaps(tracks, vel_thresh_um, frame_thresh, num_frames)
-            else:
-                final_tracks = tracks
-            track_info = []
-            for track_num, final_track in enumerate(final_tracks):
-                for mito in final_track['mitos']:
-                    info = {'track_num': track_num, 'frame': mito.frame, 'z': mito.centroid[0],
-                            'y': mito.centroid[1], 'x': mito.centroid[2]}
-                    track_info.append(info)
-            track_df = pd.DataFrame(track_info)
-            track_df.to_csv(csv_path, index=False)
+        dynamics_events_info = {'fission': count_fission_events(final_tracks, all_mito, dim_sizes, frame_thresh, distance_thresh_um),
+                                'fusion': count_fusion_events(final_tracks, all_mito, dim_sizes, frame_thresh, distance_thresh_um, num_frames)}
 
-            dynamics_events_info = {'fission': count_fission_events(final_tracks, all_mito, dim_sizes, frame_thresh, distance_thresh_um),
-                                    'fusion': count_fusion_events(final_tracks, all_mito, dim_sizes, frame_thresh, distance_thresh_um, num_frames)}
-
-            dynamics_events_df = pd.DataFrame(dynamics_events_info, index=[0])
-            dynamics_events_df.to_csv(os.path.join(output_dir, f'{file_name}-dynamics_events.csv'), index=False)
-
-            if visualize:
-                napari_tracks = []
-                for track_num, solo_track in enumerate(final_tracks):
-                    # composed of [track_num, frame, z, y, x]
-                    for mito in solo_track['mitos']:
-                        napari_tracks.append([track_num, mito.frame, mito.centroid[0] / dim_sizes['Z'],
-                                            mito.centroid[1] / dim_sizes['Y'], mito.centroid[2] / dim_sizes['X']])
-                viewer.add_image(im, name=file_name)
-                viewer.add_tracks(napari_tracks, name=file_name)
+        dynamics_events_df = pd.DataFrame(dynamics_events_info, index=[0])
+        dynamics_events_df.to_csv(os.path.join(output_dir, f'{im_name}-dynamics_events.csv'), index=False)
+        print(f'Finished {raw_file} in {time.time() - start_time} seconds.')
