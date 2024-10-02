@@ -546,7 +546,7 @@ if __name__ == '__main__':
 
     matched_files = list(zip(all_files, raw_files))
 
-    for mask_file, raw_file in matched_files[6:]:
+    for mask_file, raw_file in matched_files:
         im_name = os.path.basename(raw_file)
         output_dir = os.path.join(top_dir, 'mitometer')
         if not os.path.exists(output_dir):
